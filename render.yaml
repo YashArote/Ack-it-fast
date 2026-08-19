@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: incident-assignment-bot
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: APP_API_KEY
+        sync: false
+      - key: ROSTER_PATH
+        value: roster.xlsx
+      - key: SN_INSTANCE
+        sync: false
+      - key: SN_USER
+        sync: false
+      - key: SN_PASSWORD
+        sync: false
