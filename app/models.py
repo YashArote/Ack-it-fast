@@ -9,6 +9,7 @@ class IncidentPayload(BaseModel):
     short_description: Optional[str] = ""
     business_service: Optional[str] = ""
     assignment_group: Optional[str] = ""
+    assignment_group_sys_id: Optional[str] = None
     opened_at: Optional[str] = None
     priority: Optional[int] = None
 

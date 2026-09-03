@@ -31,7 +31,7 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
         logger.warning("invalid API key attempt", extra={"incident_number": payload.number})
         raise HTTPException(status_code=401, detail="invalid api key")
 
-    logger.info("assignment request received", extra={"incident_number": payload.number, "assignment_group": payload.assignment_group, "business_service": payload.business_service})
+    logger.info("assignment request received", extra={"incident_number": payload.number, "assignment_group": payload.assignment_group, "assignment_group_sys_id": payload.assignment_group_sys_id, "business_service": payload.business_service, "priority": payload.priority})
     now_dt = datetime.utcnow()
     if payload.opened_at:
         try:
@@ -49,7 +49,7 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
         candidates = assignment_service.find_candidates(df, assignment_group, now_dt)
         logger.info("using roster for P1 assignment", extra={"incident_number": payload.number})
     else:
-        candidates = service_now_client.list_group_users(assignment_group)
+        candidates = service_now_client.list_group_users(assignment_group, payload.assignment_group_sys_id)
         logger.info("using ServiceNow group users for non-P1 assignment", extra={"incident_number": payload.number})
     if not candidates:
         logger.warning("no candidates found for assignment", extra={"assignment_group": assignment_group, "incident_number": payload.number})

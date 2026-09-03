@@ -49,6 +49,8 @@
             short_description: current.short_description.toString(),
             business_service: current.business_service.getDisplayValue(),
             assignment_group: current.assignment_group.getDisplayValue(),
+            assignment_group_sys_id: current.assignment_group.toString(),
+            priority: parseInt(current.priority.toString(), 10),
             opened_at: current.opened_at.toString() // "yyyy-MM-dd HH:mm:ss"
         };
         request.setRequestBody(JSON.stringify(payload));

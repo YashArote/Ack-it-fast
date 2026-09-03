@@ -76,30 +76,38 @@ class ServiceNowClient(TicketingClient):
             return None
         return result[0]
 
-    def list_group_users(self, assignment_group: str) -> list:
-        if not assignment_group:
+    def list_group_users(self, assignment_group: str, assignment_group_sys_id: str = None) -> list:
+        if not assignment_group and not assignment_group_sys_id:
+            logger.warning("cannot load assignment group users without group identifier")
             return []
 
-        group_resp = requests.get(
-            f"{self.instance}/api/now/table/sys_user_group",
-            params={
-                "sysparm_query": f"name={assignment_group}",
-                "sysparm_fields": "sys_id,name",
-                "sysparm_limit": 1,
-            },
-            auth=(self.username, self.password),
-            headers={"Accept": "application/json"},
-            timeout=10,
-        )
-        group_resp.raise_for_status()
-        groups = group_resp.json().get("result", [])
-        if not groups:
-            return []
+        group_id = assignment_group_sys_id
+        if not group_id:
+            group_resp = requests.get(
+                f"{self.instance}/api/now/table/sys_user_group",
+                params={
+                    "sysparm_query": f"name={assignment_group}",
+                    "sysparm_fields": "sys_id,name",
+                    "sysparm_limit": 1,
+                },
+                auth=(self.username, self.password),
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+            logger.info("looked up ServiceNow assignment group", extra={"assignment_group": assignment_group, "status_code": group_resp.status_code})
+            group_resp.raise_for_status()
+            groups = group_resp.json().get("result", [])
+            if not groups:
+                logger.warning("ServiceNow assignment group was not found", extra={"assignment_group": assignment_group})
+                return []
+            group_id = groups[0].get("sys_id")
+
+        logger.info("loading ServiceNow assignment group members", extra={"assignment_group": assignment_group, "assignment_group_sys_id": group_id})
 
         member_resp = requests.get(
             f"{self.instance}/api/now/table/sys_user_grmember",
             params={
-                "sysparm_query": f"group={groups[0]['sys_id']}",
+                "sysparm_query": f"group={group_id}",
                 "sysparm_fields": "user",
                 "sysparm_limit": 250,
             },
@@ -118,6 +126,7 @@ class ServiceNowClient(TicketingClient):
                 user_ids.append(user["sys_id"])
 
         if not user_ids:
+            logger.warning("ServiceNow assignment group has no members", extra={"assignment_group": assignment_group, "assignment_group_sys_id": group_id})
             return []
 
         user_resp = requests.get(

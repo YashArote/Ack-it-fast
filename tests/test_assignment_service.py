@@ -59,6 +59,21 @@ def test_servicenow_similarity_query_uses_contains_filters():
     assert "short_descriptionCONTAINSproduction" in query
 
 
+def test_p1_payload_fields_are_supported():
+    from app.models import IncidentPayload
+
+    payload = IncidentPayload(
+        sys_id="incident-id",
+        number="INC0001",
+        assignment_group="Operations",
+        assignment_group_sys_id="group-id",
+        priority=1,
+    )
+
+    assert payload.priority == 1
+    assert payload.assignment_group_sys_id == "group-id"
+
+
 def test_rank_candidates_prefers_lower_active_load_and_priority_penalty():
     service = AssignmentService()
     candidates = [
