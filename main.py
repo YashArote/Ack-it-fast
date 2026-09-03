@@ -32,7 +32,6 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
         raise HTTPException(status_code=401, detail="invalid api key")
 
     logger.info("assignment request received", extra={"incident_number": payload.number, "assignment_group": payload.assignment_group, "business_service": payload.business_service})
-    df = assignment_service.load_roster()
     now_dt = datetime.utcnow()
     if payload.opened_at:
         try:
@@ -44,7 +43,14 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
             pass
 
     assignment_group = payload.assignment_group or payload.business_service or ""
-    candidates = assignment_service.find_candidates(df, assignment_group, now_dt)
+    is_p1 = payload.priority == 1
+    if is_p1:
+        df = assignment_service.load_roster()
+        candidates = assignment_service.find_candidates(df, assignment_group, now_dt)
+        logger.info("using roster for P1 assignment", extra={"incident_number": payload.number})
+    else:
+        candidates = service_now_client.list_group_users(assignment_group)
+        logger.info("using ServiceNow group users for non-P1 assignment", extra={"incident_number": payload.number})
     if not candidates:
         logger.warning("no candidates found for assignment", extra={"assignment_group": assignment_group, "incident_number": payload.number})
         return AssignmentDecision(
@@ -53,12 +59,13 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
             incident=payload.number,
         )
 
-    for candidate in candidates:
-        email = assignment_service.email_for_agent(candidate)
-        load = service_now_client.get_assignment_load_for_user(email) if email else {"current_incidents": 0, "high_priority_incidents": 0}
-        candidate["current_incidents"] = load.get("current_incidents", 0)
-        candidate["high_priority_incidents"] = load.get("high_priority_incidents", 0)
-        logger.info("candidate workload loaded", extra={"employee_name": candidate.get("Employee_Name"), "current_incidents": load.get("current_incidents", 0), "high_priority_incidents": load.get("high_priority_incidents", 0)})
+    if not is_p1:
+        for candidate in candidates:
+            email = assignment_service.email_for_agent(candidate)
+            load = service_now_client.get_assignment_load_for_user(email) if email else {"current_incidents": 0, "high_priority_incidents": 0}
+            candidate["current_incidents"] = load.get("current_incidents", 0)
+            candidate["high_priority_incidents"] = load.get("high_priority_incidents", 0)
+            logger.info("candidate workload loaded", extra={"employee_name": candidate.get("name") or candidate.get("Employee_Name"), "current_incidents": load.get("current_incidents", 0), "high_priority_incidents": load.get("high_priority_incidents", 0)})
 
     agent = assignment_service.pick_agent(candidates, assignment_group or "default", payload.priority)
     if agent is None:
@@ -72,7 +79,7 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
     email = assignment_service.email_for_agent(agent)
     logger.info("selected agent", extra={"incident_number": payload.number, "agent_name": agent.get("Employee_Name"), "agent_email": email, "priority": payload.priority})
     if SN_INSTANCE and SN_USER and SN_PASSWORD:
-        agent_sys_id = assignment_service.get_sys_id_for_email(email, service_now_client)
+        agent_sys_id = agent.get("sys_id") or assignment_service.get_sys_id_for_email(email, service_now_client)
         if not agent_sys_id:
             return AssignmentDecision(
                 assigned=False,

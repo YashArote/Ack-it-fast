@@ -2,6 +2,8 @@ from datetime import datetime
 
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from app.assignment_service import AssignmentService
 from app.service_now_client import ServiceNowClient
 
@@ -12,16 +14,16 @@ class DummyRosterRow(dict):
 
 def test_assignment_time_uses_indian_business_timezone():
     service = AssignmentService(timezone_name="Asia/Kolkata")
-    roster = [
-        DummyRosterRow(
-            Employee_Name="Alice",
-            Email_ID="alice@example.com",
-            Availability="Available",
-            Team_Type="Ops",
-            Shift_Start_Time="09:00:00",
-            Shift_End_Time="17:00:00",
-        )
-    ]
+    roster = pd.DataFrame([
+        {
+            "Employee_Name": "Alice",
+            "Email_ID": "alice@example.com",
+            "Availability": "Available",
+            "Team_Type": "Ops",
+            "Shift_Start_Time": "09:00:00",
+            "Shift_End_Time": "17:00:00",
+        }
+    ])
 
     matches = service.find_candidates(
         roster,
@@ -85,3 +87,19 @@ def test_rank_candidates_prefers_lower_active_load_and_priority_penalty():
     ranked = service.rank_candidates(candidates, incident_priority=1)
 
     assert ranked[0]["Employee_Name"] == "Bob"
+
+
+def test_rotation_only_selects_candidates_tied_for_best_load():
+    service = AssignmentService()
+    candidates = [
+        DummyRosterRow(Employee_Name="Alice", current_incidents=0, high_priority_incidents=0),
+        DummyRosterRow(Employee_Name="Bob", current_incidents=0, high_priority_incidents=0),
+        DummyRosterRow(Employee_Name="Charlie", current_incidents=3, high_priority_incidents=0),
+    ]
+
+    selected = {
+        service.pick_agent(candidates, "Ops")["Employee_Name"]
+        for _ in range(8)
+    }
+
+    assert selected == {"Alice", "Bob"}

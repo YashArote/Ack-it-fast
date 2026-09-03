@@ -76,6 +76,72 @@ class ServiceNowClient(TicketingClient):
             return None
         return result[0]
 
+    def list_group_users(self, assignment_group: str) -> list:
+        if not assignment_group:
+            return []
+
+        group_resp = requests.get(
+            f"{self.instance}/api/now/table/sys_user_group",
+            params={
+                "sysparm_query": f"name={assignment_group}",
+                "sysparm_fields": "sys_id,name",
+                "sysparm_limit": 1,
+            },
+            auth=(self.username, self.password),
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        group_resp.raise_for_status()
+        groups = group_resp.json().get("result", [])
+        if not groups:
+            return []
+
+        member_resp = requests.get(
+            f"{self.instance}/api/now/table/sys_user_grmember",
+            params={
+                "sysparm_query": f"group={groups[0]['sys_id']}",
+                "sysparm_fields": "user",
+                "sysparm_limit": 250,
+            },
+            auth=(self.username, self.password),
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        member_resp.raise_for_status()
+        members = member_resp.json().get("result", [])
+        user_ids = []
+        for member in members:
+            user = member.get("user") or {}
+            if isinstance(user, str):
+                user_ids.append(user)
+            elif user.get("sys_id"):
+                user_ids.append(user["sys_id"])
+
+        if not user_ids:
+            return []
+
+        user_resp = requests.get(
+            f"{self.instance}/api/now/table/sys_user",
+            params={
+                "sysparm_query": f"sys_idIN{','.join(user_ids)}^active=true",
+                "sysparm_fields": "sys_id,name,email",
+                "sysparm_limit": 250,
+            },
+            auth=(self.username, self.password),
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        user_resp.raise_for_status()
+        users = []
+        for user in user_resp.json().get("result", []):
+            users.append({
+                "sys_id": user.get("sys_id"),
+                "Employee_Name": user.get("name"),
+                "Email_ID": user.get("email"),
+            })
+        logger.info("loaded assignment group users", extra={"assignment_group": assignment_group, "user_count": len(users)})
+        return users
+
     def list_open_incidents(self, exclude_sys_id: str = None, similar_to: str = None) -> list:
         url = f"{self.instance}/api/now/table/incident"
         query = self.build_similarity_query(similar_to) if similar_to else "active=true^stateNOT IN6,7,8"

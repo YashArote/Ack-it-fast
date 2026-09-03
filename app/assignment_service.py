@@ -177,17 +177,32 @@ class AssignmentService:
         ranked = self.rank_candidates(candidates, incident_priority)
         if not ranked:
             return None
+
+        # Rotation is only a tie-breaker. It must never select a higher-load
+        # candidate over the lowest-load candidate.
+        best_score = (
+            ranked[0].get("_active_load", 0),
+            ranked[0].get("_high_priority_count", 0),
+        )
+        tied = [
+            candidate
+            for candidate in ranked
+            if (
+                candidate.get("_active_load", 0),
+                candidate.get("_high_priority_count", 0),
+            ) == best_score
+        ]
         with self._state_lock:
             idx = self._rotation_state.get(service_key, -1)
-            idx = (idx + 1) % len(ranked)
+            idx = (idx + 1) % len(tied)
             self._rotation_state[service_key] = idx
-        return ranked[idx]
+        return tied[idx]
 
     def email_for_agent(self, row: dict) -> Optional[str]:
         if isinstance(row, pd.Series):
-            value = row.get("Email_ID")
+            value = row.get("Email_ID") or row.get("email")
         else:
-            value = row.get("Email_ID")
+            value = row.get("Email_ID") or row.get("email")
         return str(value).strip() if value is not None and str(value).strip() else None
 
     def get_sys_id_for_email(self, email: str, service_now_client=None) -> Optional[str]:
