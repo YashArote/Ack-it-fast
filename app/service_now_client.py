@@ -29,6 +29,10 @@ class TicketingClient(ABC):
     def assign_incident(self, incident_sys_id: str, agent_sys_id: str) -> dict:
         raise NotImplementedError
 
+    @abstractmethod
+    def add_work_notes(self, incident_sys_id: str, work_notes: str) -> dict:
+        raise NotImplementedError
+
 
 class ServiceNowClient(TicketingClient):
     def __init__(self, instance: str = SN_INSTANCE, username: str = SN_USER, password: str = SN_PASSWORD):
@@ -122,8 +126,8 @@ class ServiceNowClient(TicketingClient):
             user = member.get("user") or {}
             if isinstance(user, str):
                 user_ids.append(user)
-            elif user.get("sys_id"):
-                user_ids.append(user["sys_id"])
+            elif isinstance(user, dict) and user.get("value"):
+                user_ids.append(user["value"])
 
         if not user_ids:
             logger.warning("ServiceNow assignment group has no members", extra={"assignment_group": assignment_group, "assignment_group_sys_id": group_id})
@@ -216,6 +220,23 @@ class ServiceNowClient(TicketingClient):
             timeout=10,
         )
         resp.raise_for_status()
+        return resp.json()
+
+    def add_work_notes(self, incident_sys_id: str, work_notes: str) -> dict:
+        url = f"{self.instance}/api/now/table/incident/{incident_sys_id}"
+        logger.info(
+            "adding similar incident matches to ServiceNow work notes",
+            extra={"incident_sys_id": incident_sys_id, "work_notes_length": len(work_notes or "")},
+        )
+        resp = requests.patch(
+            url,
+            json={"work_notes": work_notes},
+            auth=(self.username, self.password),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        logger.info("ServiceNow work notes updated", extra={"incident_sys_id": incident_sys_id})
         return resp.json()
 
 

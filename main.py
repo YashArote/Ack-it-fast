@@ -5,7 +5,6 @@ from fastapi import FastAPI, Header, HTTPException
 
 from app.assignment_service import AssignmentService
 from app.config import APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
-from app.email_service import send_incident_match_email
 from app.models import AssignmentDecision, IncidentPayload
 from app.roster_routes import router as roster_router
 from app.service_now_client import ServiceNowClient
@@ -96,8 +95,9 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
     )
     logger.info("similar incidents matched", extra={"incident_number": payload.number, "match_count": len(matching_incidents)})
 
-    if email:
-        send_incident_match_email(email, payload.number, matching_incidents)
+    work_notes = assignment_service.build_similar_incident_work_notes(payload.number, matching_incidents)
+    if work_notes:
+        service_now_client.add_work_notes(payload.sys_id, work_notes)
 
     return AssignmentDecision(
         assigned=True,

@@ -74,6 +74,17 @@ def test_p1_payload_fields_are_supported():
     assert payload.assignment_group_sys_id == "group-id"
 
 
+def test_similar_incidents_are_formatted_for_work_notes():
+    notes = AssignmentService().build_similar_incident_work_notes(
+        "INC0001",
+        [{"number": "INC0002", "short_description": "Database outage", "_score": 0.82}],
+    )
+
+    assert "INC0001" in notes
+    assert "INC0002" in notes
+    assert "similarity=0.82" in notes
+
+
 def test_rank_candidates_prefers_lower_active_load_and_priority_penalty():
     service = AssignmentService()
     candidates = [

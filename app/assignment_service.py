@@ -225,3 +225,15 @@ class AssignmentService:
             "incident_description": incident.get("short_description"),
             "matching_incidents": matching_incidents,
         }
+
+    def build_similar_incident_work_notes(self, incident_number: str, matching_incidents: list) -> str:
+        if not matching_incidents:
+            return ""
+
+        lines = [f"Assignment bot found similar open incidents for {incident_number}:"]
+        for match in matching_incidents[:5]:
+            number = match.get("number", "unknown")
+            description = (match.get("short_description") or "No short description").strip()
+            score = round(float(match.get("_score", 0)), 3)
+            lines.append(f"- {number} | similarity={score} | {description}")
+        return "\n".join(lines)
