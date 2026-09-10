@@ -37,5 +37,8 @@ roster.xlsx
 *.xlsx
 *.xls
 
+#Files
+dry_run_assignment.py
+
 # Logs
 *.log
