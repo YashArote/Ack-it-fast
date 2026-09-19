@@ -12,7 +12,8 @@
         Insert:         true
         Update:         true           <-- allowed for testing; guards below prevent loops
     Filter condition (recommended): Assigned to  is empty
-                                     AND Assignment group  is not empty
+    Do not require Assignment group to be non-empty; the bot should be
+    allowed to write a no-agent work note when the group is missing.
 
   Advanced tab:
     Advanced:       true
@@ -35,12 +36,19 @@
 
     var ASSIGNMENT_BOT_URL = 'https://incident-assignment-bot.onrender.com/assign';
 
-    // Safety guard for environments where this rule was accidentally enabled
-    // for updates: the bot's own work-note update must not call the bot again.
-    var latestWorkNote = current.work_notes.toString();
-    if (latestWorkNote.indexOf('[AssignmentBot]') === 0) {
-        gs.info('[AssignmentBot] skipping bot-generated work-note update for ' + current.number);
-        return;
+    // Only inspect the journal when it changed in this transaction. An older
+    // bot note must not block a later retry after an assignment/group update.
+    if (current.work_notes.changes()) {
+        var latestJournal = current.work_notes.getJournalEntry(1).toString();
+        var newlineIndex = latestJournal.indexOf('\n');
+        var latestWorkNote = newlineIndex !== -1
+            ? latestJournal.substring(newlineIndex + 1).trim()
+            : latestJournal.trim();
+
+        if (latestWorkNote.indexOf('[AssignmentBot]') === 0) {
+            gs.info('[AssignmentBot] skipping bot-generated work-note update for ' + current.number);
+            return;
+        }
     }
 
     // Do not call the bot again after it has assigned the incident. This is
