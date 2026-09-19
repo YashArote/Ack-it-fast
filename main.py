@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import FastAPI, Header, HTTPException
 
 from app.assignment_service import AssignmentService
-from app.config import ATTACH_NO_SIMILAR_WORK_NOTE, APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
+from app.config import ATTACH_NO_AGENT_WORK_NOTE, ATTACH_NO_SIMILAR_WORK_NOTE, APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
 from app.models import AssignmentDecision, IncidentPayload
 from app.roster_routes import router as roster_router
 from app.service_now_client import ServiceNowClient
@@ -31,15 +31,10 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
         raise HTTPException(status_code=401, detail="invalid api key")
 
     logger.info("assignment request received", extra={"incident_number": payload.number, "assignment_group": payload.assignment_group, "assignment_group_sys_id": payload.assignment_group_sys_id, "business_service": payload.business_service, "priority": payload.priority})
-    now_dt = datetime.utcnow()
-    if payload.opened_at:
-        try:
-            parsed = datetime.strptime(payload.opened_at, "%Y-%m-%d %H:%M:%S")
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=assignment_service.timezone)
-            now_dt = parsed.astimezone(assignment_service.timezone)
-        except ValueError:
-            pass
+    # Shift eligibility is based on the current local time, never on the
+    # incident's historical opened_at timestamp.
+    now_dt = datetime.now(assignment_service.timezone)
+    logger.info("evaluating roster against current local time", extra={"local_time": now_dt.isoformat(), "timezone": assignment_service.timezone_name})
 
     assignment_group = payload.assignment_group or payload.business_service or ""
     is_p1 = payload.priority == 1
@@ -52,6 +47,16 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
         logger.info("using ServiceNow group users for non-P1 assignment", extra={"incident_number": payload.number})
     if not candidates:
         logger.warning("no candidates found for assignment", extra={"assignment_group": assignment_group, "incident_number": payload.number})
+        if ATTACH_NO_AGENT_WORK_NOTE and SN_INSTANCE and SN_USER and SN_PASSWORD:
+            no_agent_notes = assignment_service.build_no_agent_work_notes(
+                payload.number,
+                assignment_group,
+                payload.priority,
+            )
+            service_now_client.add_work_notes(payload.sys_id, no_agent_notes)
+            logger.info("no-agent work note added", extra={"incident_number": payload.number})
+        else:
+            logger.info("no-agent work note skipped", extra={"incident_number": payload.number, "enabled": ATTACH_NO_AGENT_WORK_NOTE})
         return AssignmentDecision(
             assigned=False,
             reason="no available agent on shift for this assignment group",

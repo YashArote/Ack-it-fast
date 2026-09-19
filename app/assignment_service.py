@@ -115,10 +115,6 @@ class AssignmentService:
             normalized = self.normalize_text(g)
             if normalized == normalized_group:
                 return True
-            if normalized_group in normalized or normalized in normalized_group:
-                return True
-            if self.similarity_score(normalized_group, normalized) >= 0.72:
-                return True
         return False
 
     def normalize_datetime(self, value: Optional[datetime]) -> datetime:
@@ -237,3 +233,10 @@ class AssignmentService:
             score = round(float(match.get("_score", 0)), 3)
             lines.append(f"- {number} | similarity={score} | {description}")
         return "\n".join(lines)
+
+    def build_no_agent_work_notes(self, incident_number: str, assignment_group: str, priority: Optional[int]) -> str:
+        return (
+            f"Assignment bot could not find an eligible agent for {incident_number}. "
+            f"Assignment group: {assignment_group or 'not provided'}; "
+            f"priority: {priority if priority is not None else 'not provided'}."
+        )

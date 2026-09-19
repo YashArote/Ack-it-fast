@@ -16,3 +16,5 @@ services:
         sync: false
       - key: SN_PASSWORD
         sync: false
+      - key: ATTACH_NO_AGENT_WORK_NOTE
+        value: "true"

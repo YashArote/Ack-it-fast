@@ -34,6 +34,36 @@ def test_assignment_time_uses_indian_business_timezone():
     assert len(matches) == 1
 
 
+def test_team_matching_does_not_confuse_different_l1_groups():
+    service = AssignmentService()
+    row = {"Team_Type": "GDI-SAP_CC-MM-L1"}
+
+    assert service.team_matches(row, "GDI-SAP_CC-MM-L1")
+    assert not service.team_matches(row, "GDI-SAP_CC-FL-L1")
+    assert not service.team_matches(row, "SAP_CC-MM-L1")
+
+
+def test_roster_candidate_is_rejected_after_shift_ends():
+    service = AssignmentService(timezone_name="Asia/Kolkata")
+    roster = pd.DataFrame([
+        {
+            "Employee_Name": "DHAMDHERE, Aishwarya",
+            "Availability": "Available",
+            "Team_Type": "GDI-SAP_CC-MM-L1",
+            "Shift_Start_Time": "09:00:00",
+            "Shift_End_Time": "18:00:00",
+        }
+    ])
+
+    matches = service.find_candidates(
+        roster,
+        "GDI-SAP_CC-MM-L1",
+        datetime(2026, 9, 19, 20, 30, tzinfo=ZoneInfo("Asia/Kolkata")),
+    )
+
+    assert matches == []
+
+
 def test_fuzzy_incident_match_is_robust_for_typo_variants():
     service = AssignmentService()
     incidents = [

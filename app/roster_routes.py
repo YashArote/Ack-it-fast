@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.config import APP_API_KEY, ROSTER_PATH
 
@@ -42,10 +43,44 @@ async def roster_upload_page() -> str:
             <label for="api_key">Application API key</label>
             <input id="api_key" name="api_key" type="password" autocomplete="off" required>
             <button type="submit">Upload roster</button>
+            <button type="button" id="download">Download current roster</button>
         </form>
+        <p id="status" role="status"></p>
+        <script>
+          document.getElementById('download').addEventListener('click', async function () {
+            const key = document.getElementById('api_key').value;
+            const status = document.getElementById('status');
+            if (!key) { status.textContent = 'Enter the application API key first.'; return; }
+            status.textContent = 'Preparing download...';
+            const response = await fetch('/roster/download', { headers: { 'X-API-Key': key } });
+            if (!response.ok) { status.textContent = 'Download failed. Check the API key and try again.'; return; }
+            const blob = await response.blob();
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'roster.xlsx';
+            link.click();
+            URL.revokeObjectURL(link.href);
+            status.textContent = 'Download started.';
+          });
+        </script>
     </main>
 </body>
 </html>"""
+
+
+@router.get("/download")
+async def download_roster(x_api_key: str = Header(None)) -> FileResponse:
+    if x_api_key != APP_API_KEY:
+        raise HTTPException(status_code=401, detail="invalid api key")
+    if not ROSTER_PATH:
+        raise HTTPException(status_code=404, detail="roster path is not configured")
+    if not os.path.isfile(ROSTER_PATH):
+        raise HTTPException(status_code=404, detail="current roster was not found")
+    return FileResponse(
+        ROSTER_PATH,
+        filename="roster.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @router.post("/upload")
