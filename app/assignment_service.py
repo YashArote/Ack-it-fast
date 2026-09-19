@@ -228,7 +228,7 @@ class AssignmentService:
 
     def build_similar_incident_work_notes(self, incident_number: str, matching_incidents: list) -> str:
         if not matching_incidents:
-            return ""
+            return f"Assignment bot found no similar open incidents for {incident_number}."
 
         lines = [f"Assignment bot found similar open incidents for {incident_number}:"]
         for match in matching_incidents[:5]:

@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import FastAPI, Header, HTTPException
 
 from app.assignment_service import AssignmentService
-from app.config import APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
+from app.config import ATTACH_NO_SIMILAR_WORK_NOTE, APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
 from app.models import AssignmentDecision, IncidentPayload
 from app.roster_routes import router as roster_router
 from app.service_now_client import ServiceNowClient
@@ -96,8 +96,10 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
     logger.info("similar incidents matched", extra={"incident_number": payload.number, "match_count": len(matching_incidents)})
 
     work_notes = assignment_service.build_similar_incident_work_notes(payload.number, matching_incidents)
-    if work_notes:
+    if matching_incidents or ATTACH_NO_SIMILAR_WORK_NOTE:
         service_now_client.add_work_notes(payload.sys_id, work_notes)
+    else:
+        logger.info("skipping no-match work note because toggle is disabled", extra={"incident_number": payload.number})
 
     return AssignmentDecision(
         assigned=True,
