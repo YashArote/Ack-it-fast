@@ -236,7 +236,7 @@ class AssignmentService:
 
     def build_no_agent_work_notes(self, incident_number: str, assignment_group: str, priority: Optional[int]) -> str:
         return (
-            f"Assignment bot could not find an eligible agent for {incident_number}. "
+            f"[AssignmentBot] Assignment bot could not find an eligible agent for {incident_number}. "
             f"Assignment group: {assignment_group or 'not provided'}; "
             f"priority: {priority if priority is not None else 'not provided'}."
         )

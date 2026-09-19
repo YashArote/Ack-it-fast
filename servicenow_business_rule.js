@@ -4,13 +4,13 @@
   System Definition > Business Rules > New
 
   Table:            Incident [incident]
-  When to run tab:
-    When:           async          <-- important: keeps this off the
-                                        insert transaction so a slow/
-                                        down Python server never delays
-                                        ticket creation for the user
-    Insert:         true
-    Update:         false
+    When to run tab:
+        When:           async          <-- important: keeps this off the
+                                                                                insert transaction so a slow/
+                                                                                down Python server never delays
+                                                                                ticket creation for the user
+        Insert:         true
+        Update:         true           <-- allowed for testing; guards below prevent loops
     Filter condition (recommended): Assigned to  is empty
                                      AND Assignment group  is not empty
 
@@ -33,14 +33,29 @@
 
 (function executeRule(current, previous /*null when async*/) {
 
-    var ASSIGNMENT_BOT_URL = 'https://YOUR-APP-NAME.onrender.com/assign';
+    var ASSIGNMENT_BOT_URL = 'https://incident-assignment-bot.onrender.com/assign';
+
+    // Safety guard for environments where this rule was accidentally enabled
+    // for updates: the bot's own work-note update must not call the bot again.
+    var latestWorkNote = current.work_notes.toString();
+    if (latestWorkNote.indexOf('[AssignmentBot]') === 0) {
+        gs.info('[AssignmentBot] skipping bot-generated work-note update for ' + current.number);
+        return;
+    }
+
+    // Do not call the bot again after it has assigned the incident. This is
+    // important when this rule is enabled for both insert and update.
+    if (!current.assigned_to.nil()) {
+        gs.info('[AssignmentBot] skipping already-assigned incident ' + current.number);
+        return;
+    }
 
     try {
         var request = new sn_ws.RESTMessageV2();
         request.setHttpMethod('POST');
         request.setEndpoint(ASSIGNMENT_BOT_URL);
         request.setRequestHeader('Content-Type', 'application/json');
-        request.setRequestHeader('X-API-Key', gs.getProperty('x_custom.assignment_bot_api_key'));
+        request.setRequestHeader('X-API-Key', 'ackitfast');
         request.setHttpTimeout(10000); // ms
 
         var payload = {
