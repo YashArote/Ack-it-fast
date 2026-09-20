@@ -64,9 +64,10 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
         )
 
     if not is_p1:
+        user_sys_ids = [candidate.get("sys_id") for candidate in candidates]
+        loads = service_now_client.get_assignment_load_for_users(user_sys_ids)
         for candidate in candidates:
-            email = assignment_service.email_for_agent(candidate)
-            load = service_now_client.get_assignment_load_for_user(email) if email else {"current_incidents": 0, "high_priority_incidents": 0}
+            load = loads.get(candidate.get("sys_id"), {"current_incidents": 0, "high_priority_incidents": 0})
             candidate["current_incidents"] = load.get("current_incidents", 0)
             candidate["high_priority_incidents"] = load.get("high_priority_incidents", 0)
             logger.info("candidate workload loaded", extra={"employee_name": candidate.get("name") or candidate.get("Employee_Name"), "current_incidents": load.get("current_incidents", 0), "high_priority_incidents": load.get("high_priority_incidents", 0)})

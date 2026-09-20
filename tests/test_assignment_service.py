@@ -89,6 +89,12 @@ def test_servicenow_similarity_query_uses_contains_filters():
     assert "short_descriptionCONTAINSproduction" in query
 
 
+def test_bulk_workload_query_uses_assigned_to_in_operator():
+    client = ServiceNowClient(instance="https://example.service-now.com", username="u", password="p")
+
+    assert "assigned_toINuser-a,user-b" == "assigned_toIN" + ",".join(["user-a", "user-b"])
+
+
 def test_p1_payload_fields_are_supported():
     from app.models import IncidentPayload
 

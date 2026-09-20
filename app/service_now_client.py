@@ -210,6 +210,49 @@ class ServiceNowClient(TicketingClient):
         high_priority_incidents = sum(1 for item in incidents if str(item.get("priority", "")).strip() in {"1", "2"})
         return {"current_incidents": current_incidents, "high_priority_incidents": high_priority_incidents}
 
+    def get_assignment_load_for_users(self, user_sys_ids: list[str]) -> dict[str, dict]:
+        """Fetch active workload for all users with one ServiceNow query."""
+        unique_ids = list(dict.fromkeys(str(user_id).strip() for user_id in user_sys_ids if user_id))
+        loads = {
+            user_id: {"current_incidents": 0, "high_priority_incidents": 0}
+            for user_id in unique_ids
+        }
+        if not unique_ids:
+            return loads
+
+        query = f"active=true^stateNOT IN6,7,8^assigned_toIN{','.join(unique_ids)}"
+        logger.info("loading assignment workload in bulk", extra={"user_count": len(unique_ids), "query": query})
+        resp = requests.get(
+            f"{self.instance}/api/now/table/incident",
+            params={
+                "sysparm_query": query,
+                "sysparm_fields": "assigned_to,priority",
+                "sysparm_limit": 10000,
+            },
+            auth=(self.username, self.password),
+            headers={"Accept": "application/json"},
+            timeout=20,
+        )
+        if resp.status_code == 404:
+            return loads
+        resp.raise_for_status()
+
+        incidents = resp.json().get("result", [])
+        for incident in incidents:
+            assigned_to = incident.get("assigned_to") or {}
+            assigned_id = assigned_to.get("value") if isinstance(assigned_to, dict) else assigned_to
+            assigned_id = str(assigned_id or "").strip()
+            if assigned_id not in loads:
+                continue
+            loads[assigned_id]["current_incidents"] += 1
+            priority = incident.get("priority")
+            priority = priority.get("value") if isinstance(priority, dict) else priority
+            if str(priority or "").strip() in {"1", "2"}:
+                loads[assigned_id]["high_priority_incidents"] += 1
+
+        logger.info("bulk assignment workload loaded", extra={"incident_count": len(incidents), "user_count": len(unique_ids)})
+        return loads
+
     def assign_incident(self, incident_sys_id: str, agent_sys_id: str) -> dict:
         url = f"{self.instance}/api/now/table/incident/{incident_sys_id}"
         resp = requests.patch(
