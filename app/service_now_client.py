@@ -374,7 +374,7 @@ class ServiceNowClient(TicketingClient):
             assignment_group_sys_id=assignment_group_sys_id,
         ) if similar_to else ""
         if exclude_sys_id:
-            query = f"{query}^sys_id!= {exclude_sys_id}"
+            query = f"{query}^sys_id!={exclude_sys_id}"
         logger.info("Fetching open ritms from ServiceNow", extra={"query": query, "exclude_sys_id": exclude_sys_id, "similar_to": similar_to})
         resp = requests.get(
             url,
