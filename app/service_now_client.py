@@ -69,8 +69,11 @@ class ServiceNowClient(TicketingClient):
         business_service_sys_id: Optional[str] = None,
         service_offering_sys_id: Optional[str] = None,
         assignment_group_sys_id: Optional[str] = None,
+        exclude_sys_id: Optional[str] = None,
     ) -> str:
         filters = []
+        if exclude_sys_id:
+            filters.append(f"sys_id!={exclude_sys_id}")
         if business_service_sys_id:
             filters.append(f"business_service={business_service_sys_id}")
         if service_offering_sys_id:
@@ -199,9 +202,8 @@ class ServiceNowClient(TicketingClient):
             business_service_sys_id=business_service_sys_id,
             service_offering_sys_id=service_offering_sys_id,
             assignment_group_sys_id=assignment_group_sys_id,
-        ) if similar_to else ""
-        if exclude_sys_id:
-            query = f"{query}^sys_id!={exclude_sys_id}"
+            exclude_sys_id=exclude_sys_id,
+        ) if similar_to else (f"sys_id!={exclude_sys_id}" if exclude_sys_id else "")
         logger.info("Fetching open incidents from ServiceNow", extra={"query": query, "exclude_sys_id": exclude_sys_id, "similar_to": similar_to})
         resp = requests.get(
             url,
@@ -372,9 +374,8 @@ class ServiceNowClient(TicketingClient):
             business_service_sys_id=business_service_sys_id,
             service_offering_sys_id=service_offering_sys_id,
             assignment_group_sys_id=assignment_group_sys_id,
-        ) if similar_to else ""
-        if exclude_sys_id:
-            query = f"{query}^sys_id!={exclude_sys_id}"
+            exclude_sys_id=exclude_sys_id,
+        ) if similar_to else (f"sys_id!={exclude_sys_id}" if exclude_sys_id else "")
         logger.info("Fetching open ritms from ServiceNow", extra={"query": query, "exclude_sys_id": exclude_sys_id, "similar_to": similar_to})
         resp = requests.get(
             url,
