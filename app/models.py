@@ -8,6 +8,9 @@ class IncidentPayload(BaseModel):
     number: str
     short_description: Optional[str] = ""
     business_service: Optional[str] = ""
+    business_service_sys_id: Optional[str] = None
+    service_offering: Optional[str] = ""
+    service_offering_sys_id: Optional[str] = None
     assignment_group: Optional[str] = ""
     assignment_group_sys_id: Optional[str] = None
     opened_at: Optional[str] = None
@@ -21,3 +24,11 @@ class AssignmentDecision(BaseModel):
     incident: Optional[str] = None
     reason: Optional[str] = None
     matching_incidents: list = []
+
+
+class RitmPayload(IncidentPayload):
+    pass
+
+
+class RitmAssignmentDecision(AssignmentDecision):
+    pass

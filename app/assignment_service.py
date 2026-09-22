@@ -117,6 +117,25 @@ class AssignmentService:
                 return True
         return False
 
+    def business_service_matches(self, row: dict, business_service: str) -> bool:
+        """Check whether the row's BU/service column covers the given business service name.
+
+        The column uses the same slash-delimited format as Team_Type.
+        Returns True when business_service is empty/None so that callers which
+        don't supply a BS still get all team-matching candidates.
+        """
+        if not business_service:
+            return True
+        bs_raw = str(row.get("BU/service", "") or "")
+        bs_list = [b.strip() for b in bs_raw.split("/") if b.strip()]
+        normalized_bs = self.normalize_text(business_service)
+        if not bs_list:
+            return False
+        for b in bs_list:
+            if self.normalize_text(b) == normalized_bs:
+                return True
+        return False
+
     def normalize_datetime(self, value: Optional[datetime]) -> datetime:
         if value is None:
             return datetime.now(self.timezone)
@@ -124,7 +143,7 @@ class AssignmentService:
             return value.replace(tzinfo=self.timezone)
         return value.astimezone(self.timezone)
 
-    def find_candidates(self, df: pd.DataFrame, assignment_group: str, now_dt: datetime) -> list:
+    def find_candidates(self, df: pd.DataFrame, assignment_group: str, now_dt: datetime, business_service: str = "") -> list:
         current_local = self.normalize_datetime(now_dt)
         now_t = current_local.time()
         candidates = []
@@ -132,6 +151,8 @@ class AssignmentService:
             if str(row.get("Availability", "")).strip().lower() != "available":
                 continue
             if not self.team_matches(row, assignment_group):
+                continue
+            if not self.business_service_matches(row, business_service):
                 continue
             start_t = self.parse_time(row.get("Shift_Start_Time"))
             end_t = self.parse_time(row.get("Shift_End_Time"))
@@ -148,7 +169,15 @@ class AssignmentService:
             if not self.is_within_shift(now_t, start_t, end_t):
                 continue
             candidates.append(row)
-        logger.info("filtered roster candidates", extra={"assignment_group": assignment_group, "local_time": now_t.isoformat(), "candidate_count": len(candidates)})
+        logger.info(
+            "filtered roster candidates",
+            extra={
+                "assignment_group": assignment_group,
+                "business_service": business_service,
+                "local_time": now_t.isoformat(),
+                "candidate_count": len(candidates),
+            },
+        )
         return candidates
 
     def candidate_load_score(self, row: dict, incident_priority: Optional[int] = None) -> tuple:

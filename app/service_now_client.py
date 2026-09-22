@@ -33,6 +33,18 @@ class TicketingClient(ABC):
     def add_work_notes(self, incident_sys_id: str, work_notes: str) -> dict:
         raise NotImplementedError
 
+    @abstractmethod
+    def list_open_ritms(self, exclude_sys_id: str = None) -> list:
+        raise NotImplementedError
+
+    @abstractmethod
+    def assign_ritm(self, ritm_sys_id: str, agent_sys_id: str) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def add_ritm_work_notes(self, ritm_sys_id: str, work_notes: str) -> dict:
+        raise NotImplementedError
+
 
 class ServiceNowClient(TicketingClient):
     def __init__(self, instance: str = SN_INSTANCE, username: str = SN_USER, password: str = SN_PASSWORD):
@@ -51,15 +63,33 @@ class ServiceNowClient(TicketingClient):
                 deduped.append(term)
         return deduped
 
-    def build_similarity_query(self, description: Optional[str]) -> str:
+    def build_similarity_query(
+        self,
+        description: Optional[str],
+        business_service_sys_id: Optional[str] = None,
+        service_offering_sys_id: Optional[str] = None,
+        assignment_group_sys_id: Optional[str] = None,
+    ) -> str:
+        filters = []
+        if business_service_sys_id:
+            filters.append(f"business_service={business_service_sys_id}")
+        if service_offering_sys_id:
+            filters.append(f"service_offering={service_offering_sys_id}")
+        if assignment_group_sys_id:
+            filters.append(f"assignment_group={assignment_group_sys_id}")
+
         terms = self.normalize_search_terms(description)
         if not terms:
-            return "active=true^stateNOT IN6,7,8"
+            return "^".join(filters)
 
-        conditions = []
-        for term in terms[:8]:
-            conditions.append(f"short_descriptionCONTAINS{term}")
-        return "active=true^stateNOT IN6,7,8^" + "^OR".join(conditions)
+        # Build one complete AND branch per term. Using ^OR directly after the
+        # shared filters can let ServiceNow evaluate a description term without
+        # the service/group constraints because of encoded-query precedence.
+        branches = [
+            "^".join(filters + [f"short_descriptionCONTAINS{term}"])
+            for term in terms[:8]
+        ]
+        return "^NQ".join(branches)
 
     def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         if not email:
@@ -155,9 +185,21 @@ class ServiceNowClient(TicketingClient):
         logger.info("loaded assignment group users", extra={"assignment_group": assignment_group, "user_count": len(users)})
         return users
 
-    def list_open_incidents(self, exclude_sys_id: str = None, similar_to: str = None) -> list:
+    def list_open_incidents(
+        self,
+        exclude_sys_id: str = None,
+        similar_to: str = None,
+        business_service_sys_id: str = None,
+        service_offering_sys_id: str = None,
+        assignment_group_sys_id: str = None,
+    ) -> list:
         url = f"{self.instance}/api/now/table/incident"
-        query = self.build_similarity_query(similar_to) if similar_to else "active=true^stateNOT IN6,7,8"
+        query = self.build_similarity_query(
+            similar_to,
+            business_service_sys_id=business_service_sys_id,
+            service_offering_sys_id=service_offering_sys_id,
+            assignment_group_sys_id=assignment_group_sys_id,
+        ) if similar_to else ""
         if exclude_sys_id:
             query = f"{query}^sys_id!= {exclude_sys_id}"
         logger.info("Fetching open incidents from ServiceNow", extra={"query": query, "exclude_sys_id": exclude_sys_id, "similar_to": similar_to})
@@ -210,8 +252,12 @@ class ServiceNowClient(TicketingClient):
         high_priority_incidents = sum(1 for item in incidents if str(item.get("priority", "")).strip() in {"1", "2"})
         return {"current_incidents": current_incidents, "high_priority_incidents": high_priority_incidents}
 
+    def build_assignment_load_query(self, user_sys_ids: list[str]) -> str:
+        unique_ids = list(dict.fromkeys(str(user_id).strip() for user_id in user_sys_ids if user_id))
+        return f"active=true^stateNOT IN6,7,8^assigned_toIN{','.join(unique_ids)}"
+
     def get_assignment_load_for_users(self, user_sys_ids: list[str]) -> dict[str, dict]:
-        """Fetch active workload for all users with one ServiceNow query."""
+        """Fetch active workload for all candidate users with one query."""
         unique_ids = list(dict.fromkeys(str(user_id).strip() for user_id in user_sys_ids if user_id))
         loads = {
             user_id: {"current_incidents": 0, "high_priority_incidents": 0}
@@ -220,7 +266,7 @@ class ServiceNowClient(TicketingClient):
         if not unique_ids:
             return loads
 
-        query = f"active=true^stateNOT IN6,7,8^assigned_toIN{','.join(unique_ids)}"
+        query = self.build_assignment_load_query(unique_ids)
         logger.info("loading assignment workload in bulk", extra={"user_count": len(unique_ids), "query": query})
         resp = requests.get(
             f"{self.instance}/api/now/table/incident",
@@ -282,6 +328,119 @@ class ServiceNowClient(TicketingClient):
         logger.info("ServiceNow work notes updated", extra={"incident_sys_id": incident_sys_id})
         return resp.json()
 
+
+    def assign_ritm(self, ritm_sys_id: str, agent_sys_id: str) -> dict:
+        url = f"{self.instance}/api/now/table/sc_req_item/{ritm_sys_id}"
+        resp = requests.patch(
+            url,
+            json={"assigned_to": agent_sys_id},
+            auth=(self.username, self.password),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def add_ritm_work_notes(self, ritm_sys_id: str, work_notes: str) -> dict:
+        url = f"{self.instance}/api/now/table/sc_req_item/{ritm_sys_id}"
+        logger.info(
+            "adding similar ritm matches to ServiceNow work notes",
+            extra={"ritm_sys_id": ritm_sys_id, "work_notes_length": len(work_notes or "")},
+        )
+        resp = requests.patch(
+            url,
+            json={"work_notes": work_notes},
+            auth=(self.username, self.password),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        logger.info("ServiceNow RITM work notes updated", extra={"ritm_sys_id": ritm_sys_id})
+        return resp.json()
+
+    def list_open_ritms(
+        self,
+        exclude_sys_id: str = None,
+        similar_to: str = None,
+        business_service_sys_id: str = None,
+        service_offering_sys_id: str = None,
+        assignment_group_sys_id: str = None,
+    ) -> list:
+        url = f"{self.instance}/api/now/table/sc_req_item"
+        query = self.build_similarity_query(
+            similar_to,
+            business_service_sys_id=business_service_sys_id,
+            service_offering_sys_id=service_offering_sys_id,
+            assignment_group_sys_id=assignment_group_sys_id,
+        ) if similar_to else ""
+        if exclude_sys_id:
+            query = f"{query}^sys_id!= {exclude_sys_id}"
+        logger.info("Fetching open ritms from ServiceNow", extra={"query": query, "exclude_sys_id": exclude_sys_id, "similar_to": similar_to})
+        resp = requests.get(
+            url,
+            params={
+                "sysparm_query": query,
+                "sysparm_fields": "sys_id,number,short_description,priority,state,assigned_to",
+                "sysparm_limit": 50,
+            },
+            auth=(self.username, self.password),
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            logger.warning("ServiceNow open ritms query returned 404", extra={"query": query})
+            return []
+        resp.raise_for_status()
+        ritms = resp.json().get("result", [])
+        logger.info("ServiceNow ritm query completed", extra={"count": len(ritms)})
+        return ritms
+
+    def build_ritm_assignment_load_query(self, user_sys_ids: list[str]) -> str:
+        unique_ids = list(dict.fromkeys(str(user_id).strip() for user_id in user_sys_ids if user_id))
+        return f"active=true^stateNOT IN3,4,7^assigned_toIN{','.join(unique_ids)}"
+
+    def get_assignment_load_for_users_ritm(self, user_sys_ids: list[str]) -> dict[str, dict]:
+        """Fetch active workload for all candidate users with one query (RITM)."""
+        unique_ids = list(dict.fromkeys(str(user_id).strip() for user_id in user_sys_ids if user_id))
+        loads = {
+            user_id: {"current_incidents": 0, "high_priority_incidents": 0}
+            for user_id in unique_ids
+        }
+        if not unique_ids:
+            return loads
+
+        query = self.build_ritm_assignment_load_query(unique_ids)
+        logger.info("loading ritm assignment workload in bulk", extra={"user_count": len(unique_ids), "query": query})
+        resp = requests.get(
+            f"{self.instance}/api/now/table/sc_req_item",
+            params={
+                "sysparm_query": query,
+                "sysparm_fields": "assigned_to,priority",
+                "sysparm_limit": 10000,
+            },
+            auth=(self.username, self.password),
+            headers={"Accept": "application/json"},
+            timeout=20,
+        )
+        if resp.status_code == 404:
+            return loads
+        resp.raise_for_status()
+
+        ritms = resp.json().get("result", [])
+        for ritm in ritms:
+            assigned_to = ritm.get("assigned_to") or {}
+            assigned_id = assigned_to.get("value") if isinstance(assigned_to, dict) else assigned_to
+            assigned_id = str(assigned_id or "").strip()
+            if assigned_id not in loads:
+                continue
+            loads[assigned_id]["current_incidents"] += 1
+            priority = ritm.get("priority")
+            priority = priority.get("value") if isinstance(priority, dict) else priority
+            if str(priority or "").strip() in {"1", "2"}:
+                loads[assigned_id]["high_priority_incidents"] += 1
+
+        logger.info("bulk ritm assignment workload loaded", extra={"ritm_count": len(ritms), "user_count": len(unique_ids)})
+        return loads
 
 def get_ticketing_client(provider_name: str = "servicenow") -> TicketingClient:
     provider_name = (provider_name or "servicenow").lower()

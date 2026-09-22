@@ -82,8 +82,19 @@ def test_fuzzy_incident_match_is_robust_for_typo_variants():
 
 def test_servicenow_similarity_query_uses_contains_filters():
     client = ServiceNowClient(instance="https://example.service-now.com", username="u", password="p")
-    query = client.build_similarity_query("database server down in production")
+    query = client.build_similarity_query(
+        "database server down in production",
+        business_service_sys_id="service-1",
+        service_offering_sys_id="offering-1",
+        assignment_group_sys_id="group-1",
+    )
 
+    assert "active=true" not in query
+    assert "stateNOT IN" not in query
+    assert "business_service=service-1" in query
+    assert "service_offering=offering-1" in query
+    assert "assignment_group=group-1" in query
+    assert "^NQbusiness_service=service-1" in query
     assert "short_descriptionCONTAINSdatabase" in query
     assert "short_descriptionCONTAINSserver" in query
     assert "short_descriptionCONTAINSproduction" in query
@@ -165,3 +176,24 @@ def test_rotation_only_selects_candidates_tied_for_best_load():
     }
 
     assert selected == {"Alice", "Bob"}
+
+def test_ritm_payload_fields_are_supported():
+    from app.models import RitmPayload
+
+    payload = RitmPayload(
+        sys_id="ritm-id",
+        number="RITM0001",
+        assignment_group="Operations",
+        assignment_group_sys_id="group-id",
+        priority=1,
+    )
+
+    assert payload.priority == 1
+    assert payload.assignment_group_sys_id == "group-id"
+
+def test_ritm_bulk_workload_query_uses_state_filters():
+    client = ServiceNowClient(instance="https://example.service-now.com", username="u", password="p")
+
+    query = client.build_ritm_assignment_load_query(["user-a", "user-b"])
+    assert "stateNOT IN3,4,7" in query
+    assert "assigned_toINuser-a,user-b" in query
