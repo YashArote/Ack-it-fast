@@ -1,13 +1,14 @@
 import logging
 from datetime import datetime
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.assignment_service import AssignmentService
 from app.config import ATTACH_NO_AGENT_WORK_NOTE, ATTACH_NO_SIMILAR_WORK_NOTE, APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
 from app.models import AssignmentDecision, IncidentPayload, RitmPayload, RitmAssignmentDecision
 from app.roster_routes import router as roster_router
 from app.service_now_client import ServiceNowClient
+from app.websocket_manager import ws_manager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("ackitfast.api")
@@ -21,7 +22,35 @@ service_now_client = ServiceNowClient(SN_INSTANCE, SN_USER, SN_PASSWORD)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "ws_listeners": ws_manager.active_sg_ids}
+
+
+@app.websocket("/ws/{sg_id}")
+async def websocket_endpoint(websocket: WebSocket, sg_id: str):
+    """A frontend client connects here with its SG_ID.
+
+    It will receive a JSON push every time a P1 incident or RITM is
+    roster-assigned to the agent with that SG_ID.
+
+    Message types sent to the client:
+      { "type": "subscribed",  "sg_id": "P5647570" }
+      { "type": "assignment",  "sg_id": "P5647570",
+        "ticket_type": "incident"|"ritm",
+        "ticket_number": "INC0012345",
+        "priority": 1,
+        "assignment_group": "GDI-SAP_CC-FI-L1",
+        "business_service": "BS_GDI_SAP_Holding",
+        "agent_name": "John Doe",
+        "agent_email": "john.doe@saint-gobain.com",
+        "assigned_at": "2026-09-26T14:01:53+05:30" }
+    """
+    await ws_manager.connect(sg_id, websocket)
+    try:
+        while True:
+            # Keep the connection alive; ignore any client messages
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(sg_id, websocket)
 
 
 @app.post("/assign", response_model=AssignmentDecision)
@@ -92,6 +121,23 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
                 incident=payload.number,
             )
         service_now_client.assign_incident(payload.sys_id, agent_sys_id)
+
+    # ── WebSocket push (P1 roster assignments only) ──────────────────────
+    if is_p1:
+        sg_id = str(agent.get("SG_ID") or "").strip()
+        if sg_id:
+            ws_manager.notify_sync(sg_id, {
+                "type": "assignment",
+                "sg_id": sg_id.upper(),
+                "ticket_type": "incident",
+                "ticket_number": payload.number,
+                "priority": payload.priority,
+                "assignment_group": payload.assignment_group or "",
+                "business_service": payload.business_service or "",
+                "agent_name": agent.get("Employee_Name") or "",
+                "agent_email": email or "",
+                "assigned_at": datetime.now(assignment_service.timezone).isoformat(),
+            })
 
     open_incidents = service_now_client.list_open_incidents(
         exclude_sys_id=payload.sys_id,
@@ -189,6 +235,23 @@ def assign_ritm(payload: RitmPayload, x_api_key: str = Header(None)):
                 incident=payload.number,
             )
         service_now_client.assign_ritm(payload.sys_id, agent_sys_id)
+
+    # ── WebSocket push (P1 roster assignments only) ──────────────────────
+    if is_p1:
+        sg_id = str(agent.get("SG_ID") or "").strip()
+        if sg_id:
+            ws_manager.notify_sync(sg_id, {
+                "type": "assignment",
+                "sg_id": sg_id.upper(),
+                "ticket_type": "ritm",
+                "ticket_number": payload.number,
+                "priority": payload.priority,
+                "assignment_group": payload.assignment_group or "",
+                "business_service": payload.business_service or "",
+                "agent_name": agent.get("Employee_Name") or "",
+                "agent_email": email or "",
+                "assigned_at": datetime.now(assignment_service.timezone).isoformat(),
+            })
 
     open_ritms = service_now_client.list_open_ritms(
         exclude_sys_id=payload.sys_id,

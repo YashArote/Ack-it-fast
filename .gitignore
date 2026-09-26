@@ -40,6 +40,8 @@ roster.xlsx
 #Files
 dry_run_assignment.py
 README.pdf
+test_ws_client.html
+JIRA & NEOPS.py
 
 # Logs
 *.log
