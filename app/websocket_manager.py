@@ -75,23 +75,6 @@ class ConnectionManager:
             extra={"sg_id": key, "delivered": len(conns) - len(dead), "dropped": len(dead)},
         )
 
-    def notify_sync(self, sg_id: str, payload: dict) -> None:
-        """Thread-safe wrapper so sync FastAPI handlers can fire notifications.
-
-        FastAPI runs sync handlers in a thread-pool executor while the event
-        loop keeps running in the main thread.  We schedule the coroutine on
-        that running loop from the worker thread.
-        """
-        if not sg_id:
-            return
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.run_coroutine_threadsafe(self.notify(sg_id, payload), loop)
-            else:
-                loop.run_until_complete(self.notify(sg_id, payload))
-        except Exception as exc:
-            logger.warning("notify_sync scheduling failed", extra={"error": str(exc)})
 
     # ------------------------------------------------------------------
     # Introspection

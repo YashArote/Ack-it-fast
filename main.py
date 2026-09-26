@@ -1,7 +1,8 @@
+import json
 import logging
 from datetime import datetime
 
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 
 from app.assignment_service import AssignmentService
 from app.config import ATTACH_NO_AGENT_WORK_NOTE, ATTACH_NO_SIMILAR_WORK_NOTE, APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
@@ -34,6 +35,7 @@ async def websocket_endpoint(websocket: WebSocket, sg_id: str):
 
     Message types sent to the client:
       { "type": "subscribed",  "sg_id": "P5647570" }
+      { "type": "pong" }
       { "type": "assignment",  "sg_id": "P5647570",
         "ticket_type": "incident"|"ritm",
         "ticket_number": "INC0012345",
@@ -43,18 +45,27 @@ async def websocket_endpoint(websocket: WebSocket, sg_id: str):
         "agent_name": "John Doe",
         "agent_email": "john.doe@saint-gobain.com",
         "assigned_at": "2026-09-26T14:01:53+05:30" }
+
+    The client MUST send {"type":"ping"} every ~30 seconds.
+    Render's reverse proxy kills idle WebSocket connections after 55 s.
     """
     await ws_manager.connect(sg_id, websocket)
     try:
         while True:
-            # Keep the connection alive; ignore any client messages
-            await websocket.receive_text()
+            # Reply to keepalive pings; ignore everything else
+            text = await websocket.receive_text()
+            try:
+                msg = json.loads(text)
+                if msg.get("type") == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+            except Exception:
+                pass  # non-JSON messages are silently ignored
     except WebSocketDisconnect:
         ws_manager.disconnect(sg_id, websocket)
 
 
 @app.post("/assign", response_model=AssignmentDecision)
-def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
+def assign(payload: IncidentPayload, background_tasks: BackgroundTasks, x_api_key: str = Header(None)):
     if x_api_key != APP_API_KEY:
         logger.warning("invalid API key attempt", extra={"incident_number": payload.number})
         raise HTTPException(status_code=401, detail="invalid api key")
@@ -126,7 +137,7 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
     if is_p1:
         sg_id = str(agent.get("SG_ID") or "").strip()
         if sg_id:
-            ws_manager.notify_sync(sg_id, {
+            msg = {
                 "type": "assignment",
                 "sg_id": sg_id.upper(),
                 "ticket_type": "incident",
@@ -137,7 +148,8 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
                 "agent_name": agent.get("Employee_Name") or "",
                 "agent_email": email or "",
                 "assigned_at": datetime.now(assignment_service.timezone).isoformat(),
-            })
+            }
+            background_tasks.add_task(ws_manager.notify, sg_id, msg)
 
     open_incidents = service_now_client.list_open_incidents(
         exclude_sys_id=payload.sys_id,
@@ -168,7 +180,7 @@ def assign(payload: IncidentPayload, x_api_key: str = Header(None)):
     )
 
 @app.post("/assign-ritm", response_model=RitmAssignmentDecision)
-def assign_ritm(payload: RitmPayload, x_api_key: str = Header(None)):
+def assign_ritm(payload: RitmPayload, background_tasks: BackgroundTasks, x_api_key: str = Header(None)):
     if x_api_key != APP_API_KEY:
         logger.warning("invalid API key attempt", extra={"ritm_number": payload.number})
         raise HTTPException(status_code=401, detail="invalid api key")
@@ -240,7 +252,7 @@ def assign_ritm(payload: RitmPayload, x_api_key: str = Header(None)):
     if is_p1:
         sg_id = str(agent.get("SG_ID") or "").strip()
         if sg_id:
-            ws_manager.notify_sync(sg_id, {
+            msg = {
                 "type": "assignment",
                 "sg_id": sg_id.upper(),
                 "ticket_type": "ritm",
@@ -251,7 +263,8 @@ def assign_ritm(payload: RitmPayload, x_api_key: str = Header(None)):
                 "agent_name": agent.get("Employee_Name") or "",
                 "agent_email": email or "",
                 "assigned_at": datetime.now(assignment_service.timezone).isoformat(),
-            })
+            }
+            background_tasks.add_task(ws_manager.notify, sg_id, msg)
 
     open_ritms = service_now_client.list_open_ritms(
         exclude_sys_id=payload.sys_id,
