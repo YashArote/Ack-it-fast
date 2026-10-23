@@ -37,7 +37,9 @@ class ShiftRosterClient:
         except requests.Timeout as error:
             raise ShiftRosterAPIError("Shift roster API request timed out") from error
         except requests.ConnectionError as error:
-            raise ShiftRosterAPIError("Could not connect to the shift roster API") from error
+            raise ShiftRosterAPIError(
+                f"Could not connect to the shift roster API: {error}"
+            ) from error
         except ValueError as error:
             raise ShiftRosterAPIError("Shift roster API returned invalid JSON") from error
         except requests.RequestException as error:

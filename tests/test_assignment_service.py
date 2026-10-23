@@ -236,20 +236,66 @@ def test_shift_roster_api_client_reports_missing_key():
         raise AssertionError("expected a missing API key to fail")
 
 
-def test_fuzzy_incident_match_is_robust_for_typo_variants():
+def test_hybrid_incident_match_uses_shared_incident_context():
     service = AssignmentService()
     incidents = [
-        {"sys_id": "1", "number": "INC0001", "short_description": "Database server down in prod"},
+        {
+            "sys_id": "1",
+            "number": "INC0001",
+            "short_description": "Database server outage",
+            "description": "Production server became unavailable after deployment.",
+        },
         {"sys_id": "2", "number": "INC0002", "short_description": "VPN login failures after patch"},
     ]
 
     matches = service.find_matching_incidents(
-        "DB server is down in production",
+        "Production server is unreachable after deployment.",
         incidents,
+        short_description="Database server outage",
         threshold=0.6,
     )
 
     assert matches and matches[0]["sys_id"] == "1"
+
+
+def test_hybrid_incident_match_uses_short_and_full_descriptions():
+    service = AssignmentService()
+    incidents = [
+        {
+            "sys_id": "1",
+            "number": "INC0001",
+            "short_description": "VF01 invoice posting failure",
+            "description": "Justification: PO 4500999999 cannot post.",
+        },
+        {
+            "sys_id": "2",
+            "number": "INC0002",
+            "short_description": "Invoice posting failure",
+            "description": "PO 4500999999 cannot post.",
+        },
+    ]
+
+    matches = service.find_matching_incidents(
+        "The symptom is: PO 4500123456 cannot post.",
+        incidents,
+        short_description="VF01 invoice posting failure",
+    )
+
+    assert matches and matches[0]["sys_id"] == "1"
+    assert matches[0]["_score"] == 1.0
+    assert "vf01" in matches[0]["_matched_entities"]
+
+
+def test_incident_match_ignores_boilerplate_and_empty_descriptions():
+    service = AssignmentService()
+    tokens, entities, _ = service.clean_and_extract(
+        "SM58 queue stuck",
+        "The symptom is: IDoc processing fails. From: sender@example.com",
+    )
+
+    assert tokens == ["sm58", "queue", "stuck", "sm58", "queue", "stuck", "idoc", "processing", "fails"]
+    assert entities == {"sm58"}
+    assert service.find_matching_incidents("", [{"short_description": "SM58 queue stuck"}]) == []
 
 
 def test_servicenow_similarity_query_uses_contains_filters():
@@ -270,6 +316,9 @@ def test_servicenow_similarity_query_uses_contains_filters():
     assert "short_descriptionCONTAINSdatabase" in query
     assert "short_descriptionCONTAINSserver" in query
     assert "short_descriptionCONTAINSproduction" in query
+    assert "descriptionCONTAINSdatabase" in query
+    assert "descriptionCONTAINSserver" in query
+    assert "descriptionCONTAINSproduction" in query
 
 
 def test_bulk_workload_query_uses_assigned_to_in_operator():

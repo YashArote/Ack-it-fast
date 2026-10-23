@@ -7,6 +7,7 @@ class IncidentPayload(BaseModel):
     sys_id: str
     number: str
     short_description: Optional[str] = ""
+    description: Optional[str] = ""
     business_service: Optional[str] = ""
     business_service_sys_id: Optional[str] = None
     service_offering: Optional[str] = ""

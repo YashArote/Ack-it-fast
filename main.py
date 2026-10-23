@@ -209,15 +209,18 @@ def assign(payload: IncidentPayload, background_tasks: BackgroundTasks, x_api_ke
 
     open_incidents = service_now_client.list_open_incidents(
         exclude_sys_id=payload.sys_id,
-        similar_to=payload.short_description or payload.business_service or "",
+        similar_to=" ".join(
+            value for value in (payload.short_description, payload.description, payload.business_service) if value
+        ),
         business_service_sys_id=payload.business_service_sys_id,
         service_offering_sys_id=payload.service_offering_sys_id,
         assignment_group_sys_id=payload.assignment_group_sys_id,
     )
     matching_incidents = assignment_service.find_matching_incidents(
-        payload.short_description or payload.business_service or "",
+        payload.description or payload.short_description or payload.business_service or "",
         open_incidents,
-        threshold=0.55,
+        short_description=payload.short_description,
+        threshold=0.45,
     )
     logger.info("similar incidents matched", extra={"incident_number": payload.number, "match_count": len(matching_incidents)})
 
@@ -323,15 +326,18 @@ def assign_ritm(payload: RitmPayload, background_tasks: BackgroundTasks, x_api_k
 
     open_ritms = service_now_client.list_open_ritms(
         exclude_sys_id=payload.sys_id,
-        similar_to=payload.short_description or payload.business_service or "",
+        similar_to=" ".join(
+            value for value in (payload.short_description, payload.description, payload.business_service) if value
+        ),
         business_service_sys_id=payload.business_service_sys_id,
         service_offering_sys_id=payload.service_offering_sys_id,
         assignment_group_sys_id=payload.assignment_group_sys_id,
     )
     matching_ritms = assignment_service.find_matching_incidents(
-        payload.short_description or payload.business_service or "",
+        payload.description or payload.short_description or payload.business_service or "",
         open_ritms,
-        threshold=0.55,
+        short_description=payload.short_description,
+        threshold=0.45,
     )
     logger.info("similar ritms matched", extra={"ritm_number": payload.number, "match_count": len(matching_ritms)})
 

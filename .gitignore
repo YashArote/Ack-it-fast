@@ -42,6 +42,7 @@ dry_run_assignment.py
 README.pdf
 test_ws_client.html
 JIRA & NEOPS.py
+check_shift_roster_api.py
 
 # Logs
 *.log

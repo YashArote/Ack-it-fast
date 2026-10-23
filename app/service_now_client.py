@@ -89,8 +89,9 @@ class ServiceNowClient(TicketingClient):
         # shared filters can let ServiceNow evaluate a description term without
         # the service/group constraints because of encoded-query precedence.
         branches = [
-            "^".join(filters + [f"short_descriptionCONTAINS{term}"])
+            "^".join(filters + [f"{field}CONTAINS{term}"])
             for term in terms[:8]
+            for field in ("short_description", "description")
         ]
         return "^NQ".join(branches)
 
@@ -235,7 +236,7 @@ class ServiceNowClient(TicketingClient):
             url,
             params={
                 "sysparm_query": query,
-                "sysparm_fields": "sys_id,number,short_description,priority,state,assigned_to",
+                "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to",
                 "sysparm_limit": 50,
             },
             auth=(self.username, self.password),
@@ -407,7 +408,7 @@ class ServiceNowClient(TicketingClient):
             url,
             params={
                 "sysparm_query": query,
-                "sysparm_fields": "sys_id,number,short_description,priority,state,assigned_to",
+                "sysparm_fields": "sys_id,number,short_description,description,priority,state,assigned_to",
                 "sysparm_limit": 50,
             },
             auth=(self.username, self.password),

@@ -41,6 +41,14 @@ P1 incidents use the shift roster API only. A person can be selected when:
 The incident's original opening time is not used. The check uses the current time when the assignment is made.
 Set `SHIFT_ROSTER_API_KEY` to the roster API key. If the API request fails, P1 assignment stops without falling back to Excel.
 
+To test the live roster API without reading or changing a ServiceNow ticket, run:
+
+```text
+python check_shift_roster_api.py
+```
+
+The script defaults to assignment group `GDI-SAP_CC-Authorizations` and business service `BS_GDI_SAP_E2000`. It uses the current date and time in `WORKSPACE_TIMEZONE`, reads the API key from the process environment or local `.env`, and does not print the key or employee SGIDs. To verify the deployed environment, run the script in that environment; running it locally only verifies local configuration.
+
 Workload is not considered for P1 incidents. If several people meet all conditions, assignments rotate between those eligible people.
 
 ### Non-P1 incidents

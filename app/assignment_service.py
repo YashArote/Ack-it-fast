@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
+from collections import Counter
 from datetime import datetime, time as dtime
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
 from zoneinfo import ZoneInfo
@@ -15,6 +17,38 @@ logger = logging.getLogger("ackitfast.assignment")
 
 
 class AssignmentService:
+    BOILERPLATE_REGEX = re.compile(
+        r"(the symptom is:|o sintoma é:|describe the issue:|descreva o problema:|"
+        r"procedure to reproduce the issue:|procedimento para reproduzir o problema:|"
+        r"justification:|justificativa:|"
+        r"hello team|dear team|good morning|good afternoon|hello everyone|"
+        r"thanks\s*&?\s*regards|best regards|kind regards|thank you in advance|"
+        r"please check and|could you please|see attached|attached screenshot|"
+        r"\[cid:[^\]]+\]|from:.*|sent:.*|to:.*|cc:.*|subject:.*)",
+        re.IGNORECASE,
+    )
+    TECH_ENTITY_REGEX = re.compile(
+        r"\b(?:"
+        r"/n/[a-z0-9_/]+|"
+        r"[p]_\d{2}_[a-z0-9_-]+|"
+        r"z[a-z0-9_]{3,}|"
+        r"(?:va|vl|vf|me|mm|mb|md|mi|sm|se|su|st|fb|fk|fd|fs|f-|ko|ks|kp|ke|lt|vi|vd|vk|vv|we)\d{2}[a-zn]?|"
+        r"e1[a-z0-9]{4,}|"
+        r"(?:incsd|ritmsd|enhc|dmnd|qsm-)\d+|"
+        r"(?:p01|p16|tg4|ro1|ro2|q11|r10|a11|pi1|pv1|de6|te6|ts6|pwy|ewm|ibp|mdg|s4h|medius|ksef|factivity|pagero|notilus|zentrada|tagxter|orion)"
+        r")\b",
+        re.IGNORECASE,
+    )
+    STOPWORDS: Set[str] = {
+        "the", "is", "in", "to", "for", "of", "and", "on", "with", "not", "are", "be",
+        "this", "that", "have", "has", "was", "from", "by", "as", "at", "or", "an", "it",
+        "we", "can", "you", "please", "hello", "hi", "dear", "team", "thanks", "thank",
+        "regards", "br", "kr", "issue", "problem", "error", "working", "unable", "need",
+        "help", "check", "support", "user", "system", "sap", "attached", "attachment",
+        "see", "below", "following", "when", "try", "trying", "getting", "de", "la", "le",
+        "en", "para", "por", "com", "não", "no", "na", "und", "nicht", "mit", "die", "der",
+    }
+
     def __init__(self, timezone_name: str = WORKSPACE_TIMEZONE):
         self.timezone_name = timezone_name
         self.timezone = ZoneInfo(self.timezone_name)
@@ -76,31 +110,126 @@ class AssignmentService:
         union = len(a_tokens | b_tokens)
         return 0.0 if union == 0 else intersection / union
 
-    def similarity_score(self, left: str, right: str) -> float:
-        left_norm = self.normalize_text(left)
-        right_norm = self.normalize_text(right)
-        if not left_norm or not right_norm:
-            return 0.0
-        if left_norm == right_norm:
-            return 1.0
-        if left_norm in right_norm or right_norm in left_norm:
-            return 0.9
-        token_ratio = self.token_set_ratio(left_norm, right_norm)
-        char_overlap = 1.0 - (len(set(left_norm) ^ set(right_norm)) / max(len(set(left_norm) | set(right_norm)), 1))
-        return max(token_ratio, char_overlap, 0.0)
+    def clean_and_extract(
+        self,
+        short_desc: Optional[str],
+        desc: Optional[str],
+    ) -> Tuple[List[str], Set[str], Set[str]]:
+        s_desc = str(short_desc or "").strip()
+        f_desc = str(desc or "").strip()
 
-    def find_matching_incidents(self, description: str, incidents: Iterable[dict], threshold: float = 0.6) -> list:
-        query = self.normalize_text(description)
+        if "from:" in f_desc.lower() and len(f_desc) > 1200:
+            f_desc = f_desc[:1200]
+
+        combined = f"{s_desc} {s_desc} {f_desc}"
+        tech_entities = {match.group(0).lower() for match in self.TECH_ENTITY_REGEX.finditer(combined)}
+        cleaned = self.BOILERPLATE_REGEX.sub(" ", combined.lower())
+        cleaned = re.sub(r"\b\d{6,}\b", " _docnum_ ", cleaned)
+        cleaned = re.sub(r"[^a-z0-9_-]+", " ", cleaned)
+        tokens = [
+            token for token in cleaned.split()
+            if len(token) > 1 and token not in self.STOPWORDS
+        ]
+        bigrams = {
+            f"{tokens[index]}_{tokens[index + 1]}"
+            for index in range(len(tokens) - 1)
+            if not (tokens[index] == "_docnum_" and tokens[index + 1] == "_docnum_")
+        }
+        return tokens, tech_entities, bigrams
+
+    def _build_idf(
+        self,
+        processed_docs: List[Tuple[List[str], Set[str], Set[str]]],
+    ) -> Dict[str, float]:
+        num_docs = len(processed_docs)
+        df_counts = Counter()
+        for tokens, _, _ in processed_docs:
+            for token in set(tokens):
+                df_counts[token] += 1
+        return {
+            token: math.log((1.0 + num_docs) / (1.0 + count)) + 1.0
+            for token, count in df_counts.items()
+        }
+
+    def _weighted_cosine(self, tokens_a: List[str], tokens_b: List[str], idf: Dict[str, float]) -> float:
+        if not tokens_a or not tokens_b:
+            return 0.0
+        tf_a = Counter(tokens_a)
+        tf_b = Counter(tokens_b)
+        vec_a = {token: (1.0 + math.log(count)) * idf.get(token, 4.0) for token, count in tf_a.items()}
+        vec_b = {token: (1.0 + math.log(count)) * idf.get(token, 4.0) for token, count in tf_b.items()}
+        common = set(vec_a) & set(vec_b)
+        if not common:
+            return 0.0
+        dot_product = sum(vec_a[token] * vec_b[token] for token in common)
+        norm_a = math.sqrt(sum(value * value for value in vec_a.values()))
+        norm_b = math.sqrt(sum(value * value for value in vec_b.values()))
+        return 0.0 if norm_a == 0 or norm_b == 0 else dot_product / (norm_a * norm_b)
+
+    @staticmethod
+    def _jaccard_or_containment(set_a: Set[str], set_b: Set[str]) -> float:
+        if not set_a or not set_b:
+            return 0.0
+        intersection = len(set_a & set_b)
+        if intersection == 0:
+            return 0.0
+        union = len(set_a | set_b)
+        min_len = min(len(set_a), len(set_b))
+        return 0.5 * (intersection / union) + 0.5 * (intersection / min_len)
+
+    def find_matching_incidents(
+        self,
+        description: str,
+        incidents: Iterable[dict],
+        short_description: Optional[str] = None,
+        threshold: float = 0.45,
+    ) -> List[dict]:
+        incident_list = list(incidents)
+        if not incident_list:
+            return []
+
+        q_tokens, q_entities, q_bigrams = self.clean_and_extract(short_description, description)
+        if not q_tokens and not q_entities:
+            return []
+
+        processed_candidates = [
+            self.clean_and_extract(incident.get("short_description"), incident.get("description"))
+            for incident in incident_list
+        ]
+        idf = self._build_idf(processed_candidates + [(q_tokens, q_entities, q_bigrams)])
         hits = []
-        for incident in incidents:
-            candidate = incident.get("short_description") or incident.get("description") or ""
-            score = self.similarity_score(query, candidate)
+        q_norm_exact = " ".join(q_tokens)
+
+        for index, incident in enumerate(incident_list):
+            c_tokens, c_entities, c_bigrams = processed_candidates[index]
+            if not c_tokens and not c_entities:
+                continue
+
+            if q_norm_exact and q_norm_exact == " ".join(c_tokens):
+                score = 1.0
+            else:
+                tfidf_sim = self._weighted_cosine(q_tokens, c_tokens, idf)
+                entity_sim = self._jaccard_or_containment(q_entities, c_entities)
+                bigram_sim = self._jaccard_or_containment(q_bigrams, c_bigrams)
+                if q_entities and c_entities:
+                    score = (0.50 * tfidf_sim) + (0.35 * entity_sim) + (0.15 * bigram_sim)
+                else:
+                    score = (0.75 * tfidf_sim) + (0.25 * bigram_sim)
+
             if score >= threshold:
                 incident_copy = dict(incident)
-                incident_copy["_score"] = score
+                incident_copy["_score"] = round(score, 4)
+                incident_copy["_matched_entities"] = list(q_entities & c_entities)
                 hits.append(incident_copy)
         hits.sort(key=lambda item: item.get("_score", 0.0), reverse=True)
-        logger.info("completed fuzzy incident matching", extra={"query": query, "candidate_count": len(hits), "threshold": threshold})
+        logger.info(
+            "completed hybrid incident matching",
+            extra={
+                "query_entities": list(q_entities),
+                "candidate_count": len(hits),
+                "threshold": threshold,
+            },
+        )
         return hits
 
     def team_matches(self, row: dict, assignment_group: str) -> bool:
