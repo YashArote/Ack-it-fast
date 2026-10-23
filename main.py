@@ -2,12 +2,14 @@ import json
 import logging
 from datetime import datetime
 
+import requests
 from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 
 from app.assignment_service import AssignmentService
 from app.config import ATTACH_NO_AGENT_WORK_NOTE, ATTACH_NO_SIMILAR_WORK_NOTE, APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
 from app.models import AssignmentDecision, IncidentPayload, RitmPayload, RitmAssignmentDecision
 from app.roster_routes import router as roster_router
+from app.shift_roster_client import ShiftRosterAPIError, ShiftRosterClient
 from app.service_now_client import ServiceNowClient
 from app.websocket_manager import ws_manager
 
@@ -18,7 +20,61 @@ app = FastAPI(title="Incident Auto-Assignment Bot")
 app.include_router(roster_router)
 
 assignment_service = AssignmentService(timezone_name=WORKSPACE_TIMEZONE)
+shift_roster_client = ShiftRosterClient()
 service_now_client = ServiceNowClient(SN_INSTANCE, SN_USER, SN_PASSWORD)
+
+
+def get_p1_candidates(assignment_group: str, business_service: str, now_dt: datetime, ticket_number: str) -> list:
+    if not assignment_group:
+        logger.warning("cannot load shift roster without an assignment group", extra={"ticket_number": ticket_number})
+        return []
+
+    try:
+        employees = shift_roster_client.get_employees(assignment_group, now_dt.date().isoformat())
+    except ShiftRosterAPIError as error:
+        logger.error(
+            "shift roster API unavailable",
+            extra={"ticket_number": ticket_number, "assignment_group": assignment_group, "error": str(error)},
+        )
+        raise HTTPException(status_code=502, detail="shift roster API request failed") from error
+
+    candidates = assignment_service.find_shift_roster_candidates(employees, business_service, now_dt)
+    if SN_INSTANCE and SN_USER and SN_PASSWORD and candidates:
+        try:
+            users = service_now_client.get_users_by_usernames(
+                [candidate["SG_ID"] for candidate in candidates]
+            )
+        except requests.RequestException as error:
+            logger.error(
+                "ServiceNow SGID lookup failed",
+                extra={"ticket_number": ticket_number, "assignment_group": assignment_group},
+            )
+            raise HTTPException(status_code=502, detail="ServiceNow user lookup failed") from error
+
+        users_by_username = {
+            str(user.get("user_name") or "").casefold(): user
+            for user in users
+        }
+        resolved_candidates = []
+        for candidate in candidates:
+            user = users_by_username.get(candidate["SG_ID"].casefold())
+            if not user or not user.get("sys_id"):
+                logger.warning(
+                    "shift roster SGID has no active ServiceNow user",
+                    extra={"sgid": candidate["SG_ID"], "ticket_number": ticket_number},
+                )
+                continue
+            candidate.update(
+                {
+                    "sys_id": user["sys_id"],
+                    "Employee_Name": user.get("name") or candidate["SG_ID"],
+                    "Email_ID": user.get("email"),
+                }
+            )
+            resolved_candidates.append(candidate)
+        candidates = resolved_candidates
+
+    return candidates
 
 
 @app.get("/health")
@@ -79,9 +135,8 @@ def assign(payload: IncidentPayload, background_tasks: BackgroundTasks, x_api_ke
     assignment_group = payload.assignment_group or payload.business_service or ""
     is_p1 = payload.priority == 1
     if is_p1:
-        df = assignment_service.load_roster()
-        candidates = assignment_service.find_candidates(df, assignment_group, now_dt, payload.business_service or "")
-        logger.info("using roster for P1 assignment", extra={"incident_number": payload.number})
+        candidates = get_p1_candidates(assignment_group, payload.business_service or "", now_dt, payload.number)
+        logger.info("using shift roster API for P1 assignment", extra={"incident_number": payload.number})
     else:
         candidates = service_now_client.list_group_users(assignment_group, payload.assignment_group_sys_id)
         logger.info("using ServiceNow group users for non-P1 assignment", extra={"incident_number": payload.number})
@@ -193,9 +248,8 @@ def assign_ritm(payload: RitmPayload, background_tasks: BackgroundTasks, x_api_k
     assignment_group = payload.assignment_group or payload.business_service or ""
     is_p1 = payload.priority == 1
     if is_p1:
-        df = assignment_service.load_roster()
-        candidates = assignment_service.find_candidates(df, assignment_group, now_dt, payload.business_service or "")
-        logger.info("using roster for P1 assignment", extra={"ritm_number": payload.number})
+        candidates = get_p1_candidates(assignment_group, payload.business_service or "", now_dt, payload.number)
+        logger.info("using shift roster API for P1 assignment", extra={"ritm_number": payload.number})
     else:
         candidates = service_now_client.list_group_users(assignment_group, payload.assignment_group_sys_id)
         logger.info("using ServiceNow group users for non-P1 assignment", extra={"ritm_number": payload.number})

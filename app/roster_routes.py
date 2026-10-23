@@ -34,8 +34,8 @@ async def roster_upload_page() -> str:
 </head>
 <body>
     <main>
-        <h1>Update shift roster</h1>
-        <p>Upload the latest Excel roster. The uploaded file replaces the roster currently used for P1 assignment decisions.</p>
+        <h1>Legacy Excel roster</h1>
+        <p>This upload page is deprecated. P1 assignment decisions now use the shift roster API; uploading an Excel file will not change assignment eligibility.</p>
         <form action="/roster/upload" method="post" enctype="multipart/form-data">
             <label for="file">Roster Excel file</label>
             <input id="file" name="file" type="file" accept=".xlsx,.xls" required>

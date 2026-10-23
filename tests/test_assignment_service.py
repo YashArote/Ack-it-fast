@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from app.assignment_service import AssignmentService
+from app.shift_roster_client import ShiftRosterAPIError, ShiftRosterClient
 from app.service_now_client import ServiceNowClient
 
 
@@ -62,6 +63,143 @@ def test_roster_candidate_is_rejected_after_shift_ends():
     )
 
     assert matches == []
+
+
+def test_shift_roster_api_candidates_require_service_availability_and_active_shift():
+    service = AssignmentService(timezone_name="Asia/Kolkata")
+    employees = [
+        {
+            "sgid": "T8753430",
+            "businessServices": ["BS_CSR_SAP", "BS_GDI_SAP_E2000"],
+            "shift": "M",
+            "availabilityStatus": "PRESENT",
+        },
+        {
+            "sgid": "T8761234",
+            "businessServices": ["BS_CSR_SAP"],
+            "shift": None,
+            "availabilityStatus": "UNAVAILABLE",
+        },
+        {
+            "sgid": "T8769999",
+            "businessServices": ["BS_OTHER"],
+            "shift": "M",
+            "availabilityStatus": "PRESENT",
+        },
+        {
+            "sgid": "T8769998",
+            "businessServices": ["BS_GDI_SAP_E2000"],
+            "shift": "A",
+            "availabilityStatus": "PRESENT",
+        },
+    ]
+
+    matches = service.find_shift_roster_candidates(
+        employees,
+        "BS_GDI_SAP_E2000",
+        datetime(2026, 10, 23, 9, 30, tzinfo=ZoneInfo("Asia/Kolkata")),
+    )
+
+    assert [candidate["SG_ID"] for candidate in matches] == ["T8753430"]
+
+
+def test_shift_roster_api_candidate_is_available_through_shift_end():
+    service = AssignmentService(timezone_name="Asia/Kolkata")
+    employee = {
+        "sgid": "T8753430",
+        "businessServices": ["BS_CSR_SAP"],
+        "shift": "M",
+        "availabilityStatus": "PRESENT",
+    }
+
+    matches = service.find_shift_roster_candidates(
+        [employee],
+        "BS_CSR_SAP",
+        datetime(2026, 10, 23, 18, 30, tzinfo=ZoneInfo("Asia/Kolkata")),
+    )
+
+    assert [candidate["SG_ID"] for candidate in matches] == ["T8753430"]
+
+
+def test_shift_roster_api_a_shift_uses_inclusive_indian_time_window():
+    service = AssignmentService(timezone_name="Asia/Kolkata")
+    employee = {
+        "sgid": "T8753430",
+        "businessServices": ["BS_CSR_SAP"],
+        "shift": "A",
+        "availabilityStatus": "PRESENT",
+    }
+
+    for hour, minute, expected_count in (
+        (12, 29, 0),
+        (12, 30, 1),
+        (21, 30, 1),
+        (21, 31, 0),
+    ):
+        matches = service.find_shift_roster_candidates(
+            [employee],
+            "BS_CSR_SAP",
+            datetime(2026, 10, 23, hour, minute, tzinfo=ZoneInfo("Asia/Kolkata")),
+        )
+        assert len(matches) == expected_count
+
+
+def test_shift_roster_api_client_sends_expected_post(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "assignmentGroup": "GDI-SAP_CC-Authorizations",
+                "date": "2026-10-23",
+                "employees": [{"sgid": "T8753430"}],
+            }
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr("app.shift_roster_client.requests.post", fake_post)
+    client = ShiftRosterClient("https://roster.example/employees", "test-key")
+
+    employees = client.get_employees("GDI-SAP_CC-Authorizations", "2026-10-23")
+
+    assert captured["url"] == "https://roster.example/employees"
+    assert captured["headers"]["x-api-key"] == "test-key"
+    assert captured["json"] == {
+        "assignmentGroup": "GDI-SAP_CC-Authorizations",
+        "date": "2026-10-23",
+    }
+    assert employees == [{"sgid": "T8753430"}]
+
+
+def test_shift_roster_api_client_rejects_wrong_group(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "assignmentGroup": "another-group",
+                "date": "2026-10-23",
+                "employees": [],
+            }
+
+    monkeypatch.setattr("app.shift_roster_client.requests.post", lambda *args, **kwargs: FakeResponse())
+
+    try:
+        ShiftRosterClient("https://roster.example/employees", "test-key").get_employees(
+            "GDI-SAP_CC-Authorizations",
+            "2026-10-23",
+        )
+    except ShiftRosterAPIError as error:
+        assert "different assignment group" in str(error)
+    else:
+        raise AssertionError("expected a response group mismatch to fail closed")
 
 
 def test_fuzzy_incident_match_is_robust_for_typo_variants():

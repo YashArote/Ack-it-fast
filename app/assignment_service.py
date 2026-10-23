@@ -180,6 +180,66 @@ class AssignmentService:
         )
         return candidates
 
+    def find_shift_roster_candidates(
+        self,
+        employees: Iterable[dict],
+        business_service: str,
+        now_dt: datetime,
+    ) -> list:
+        current_local = self.normalize_datetime(now_dt)
+        current_time = current_local.time()
+        shift_windows = {
+            "M": (dtime(9, 30), dtime(18, 30)),
+            "A": (dtime(12, 30), dtime(21, 30)),
+        }
+        normalized_business_service = str(business_service or "").strip().casefold()
+        if not normalized_business_service:
+            logger.warning("business service is required to filter shift roster candidates")
+            return []
+
+        candidates = []
+
+        for employee in employees:
+            sgid = str(employee.get("sgid") or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9]+", sgid):
+                continue
+            if str(employee.get("availabilityStatus") or "").strip().upper() != "PRESENT":
+                continue
+
+            services = employee.get("businessServices")
+            if not isinstance(services, list) or not any(
+                isinstance(service, str) and service.strip().casefold() == normalized_business_service
+                for service in services
+            ):
+                continue
+
+            shift = str(employee.get("shift") or "").strip().upper()
+            shift_window = shift_windows.get(shift)
+            if shift_window is None or not self.is_within_shift(current_time, *shift_window):
+                continue
+
+            candidates.append(
+                {
+                    "Employee_Name": sgid,
+                    "SG_ID": sgid,
+                    "projectCode": employee.get("projectCode"),
+                    "businessServices": services,
+                    "shift": shift,
+                    "shiftLabel": employee.get("shiftLabel"),
+                    "availabilityStatus": "PRESENT",
+                }
+            )
+
+        logger.info(
+            "filtered shift roster API candidates",
+            extra={
+                "business_service": business_service,
+                "local_time": current_time.isoformat(),
+                "candidate_count": len(candidates),
+            },
+        )
+        return candidates
+
     def candidate_load_score(self, row: dict, incident_priority: Optional[int] = None) -> tuple:
         active_count = int(row.get("current_incidents", 0) or 0)
         high_priority = int(row.get("high_priority_incidents", 0) or 0)

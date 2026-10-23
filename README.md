@@ -17,8 +17,8 @@ How urgently an incident needs attention. P1 is the highest priority. P2, P3, P4
 ### Assignment group
 The support team responsible for the incident, for example `GDI-SAP_CC-FI-L1`.
 
-### Roster
-The Excel file containing people, teams, availability, and working hours used for P1 assignments.
+### Shift roster
+The shift roster API supplies SGIDs, business-service membership, availability, and shift data for P1 assignments.
 
 ### Workload
 The number of active incidents currently assigned to a person.
@@ -30,13 +30,16 @@ The number of active P1 and P2 incidents currently assigned to a person.
 
 ### P1 incidents
 
-P1 incidents use the roster only. A person can be selected when:
+P1 incidents use the shift roster API only. A person can be selected when:
 
-- They are marked `Available`.
-- Their team exactly matches the incident's Assignment group.
-- Their working hours include the current time in India.
+- The API returns them for the incident's Assignment group and the current date in India.
+- Their `businessServices` include the incident's business service.
+- Their availability status is `PRESENT`.
+- Their shift covers the current time in India: M is 09:30–18:30 and A is 12:30–21:30, including both endpoints.
+- Their SGID resolves to an active ServiceNow user (`user_name`) when ServiceNow credentials are configured.
 
 The incident's original opening time is not used. The check uses the current time when the assignment is made.
+Set `SHIFT_ROSTER_API_KEY` to the roster API key. If the API request fails, P1 assignment stops without falling back to Excel.
 
 Workload is not considered for P1 incidents. If several people meet all conditions, assignments rotate between those eligible people.
 
@@ -158,20 +161,14 @@ When no eligible person is found:
 - A no-agent message appears in Work notes if enabled.
 - To retry after someone becomes available, change a meaningful field such as Assignment group or Priority and save.
 
-## Updating the roster
+## Legacy Excel roster
 
-Open:
+The old Excel upload/download page remains available for compatibility, but uploaded files are no longer used to make assignments. Configure `SHIFT_ROSTER_API_URL` and `SHIFT_ROSTER_API_KEY` for the shift roster API instead.
+
+Legacy page (no longer needed for assignments):
 
 ```text
 https://incident-assignment-bot.onrender.com/roster/upload
 ```
 
-Enter the application key and use the page buttons:
-
-- **Upload roster** replaces the current roster.
-- **Download current roster** downloads the roster currently being used.
-
-Accepted files are `.xlsx` and `.xls`. An updated file replaces the current roster even when it has the same filename.
-
-Roster changes affect future P1 assignments. Non-P1 assignments do not use the roster.
-
+Excel changes do not affect assignments. Non-P1 assignments continue to use ServiceNow assignment-group members and workload.

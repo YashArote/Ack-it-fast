@@ -8,8 +8,10 @@ services:
     envVars:
       - key: APP_API_KEY
         sync: false
-      - key: ROSTER_PATH
-        value: roster.xlsx
+      - key: SHIFT_ROSTER_API_URL
+        value: https://dev.symphony.saint-gobain.com/api/external/v1/shift-roster/assignment-group/employees
+      - key: SHIFT_ROSTER_API_KEY
+        sync: false
       - key: SN_INSTANCE
         sync: false
       - key: SN_USER

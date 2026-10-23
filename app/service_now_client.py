@@ -14,7 +14,7 @@ logger = logging.getLogger("ackitfast.service_now")
 
 class TicketingClient(ABC):
     @abstractmethod
-    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+    def get_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         raise NotImplementedError
 
     @abstractmethod
@@ -112,6 +112,32 @@ class ServiceNowClient(TicketingClient):
         if not result:
             return None
         return result[0]
+
+    def get_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        return self.get_user_by_email(email)
+
+    def get_users_by_usernames(self, usernames: list[str]) -> list[Dict[str, Any]]:
+        valid_usernames = [
+            username
+            for username in dict.fromkeys(usernames)
+            if re.fullmatch(r"[A-Za-z0-9]+", username)
+        ]
+        if not valid_usernames:
+            return []
+
+        response = requests.get(
+            f"{self.instance}/api/now/table/sys_user",
+            params={
+                "sysparm_query": f"active=true^user_nameIN{','.join(valid_usernames)}",
+                "sysparm_fields": "sys_id,user_name,name,email",
+                "sysparm_limit": len(valid_usernames),
+            },
+            auth=(self.username, self.password),
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json().get("result", [])
 
     def list_group_users(self, assignment_group: str, assignment_group_sys_id: str = None) -> list:
         if not assignment_group and not assignment_group_sys_id:
