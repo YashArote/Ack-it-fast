@@ -33,8 +33,9 @@ def get_p1_candidates(assignment_group: str, business_service: str, now_dt: date
         employees = shift_roster_client.get_employees(assignment_group, now_dt.date().isoformat())
     except ShiftRosterAPIError as error:
         logger.error(
-            "shift roster API unavailable",
-            extra={"ticket_number": ticket_number, "assignment_group": assignment_group, "error": str(error)},
+            "shift roster API unavailable: %s",
+            error,
+            extra={"ticket_number": ticket_number, "assignment_group": assignment_group},
         )
         raise HTTPException(status_code=502, detail="shift roster API request failed") from error
 

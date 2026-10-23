@@ -29,10 +29,21 @@ class ShiftRosterClient:
             )
             response.raise_for_status()
             payload = response.json()
+        except requests.HTTPError as error:
+            status_code = error.response.status_code if error.response is not None else "unknown"
+            raise ShiftRosterAPIError(
+                f"Shift roster API returned HTTP {status_code}"
+            ) from error
+        except requests.Timeout as error:
+            raise ShiftRosterAPIError("Shift roster API request timed out") from error
+        except requests.ConnectionError as error:
+            raise ShiftRosterAPIError("Could not connect to the shift roster API") from error
         except ValueError as error:
             raise ShiftRosterAPIError("Shift roster API returned invalid JSON") from error
         except requests.RequestException as error:
-            raise ShiftRosterAPIError("Shift roster API request failed") from error
+            raise ShiftRosterAPIError(
+                f"Shift roster API request failed ({type(error).__name__})"
+            ) from error
 
         if not isinstance(payload, dict):
             raise ShiftRosterAPIError("Shift roster API returned an invalid response")

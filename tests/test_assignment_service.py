@@ -202,6 +202,40 @@ def test_shift_roster_api_client_rejects_wrong_group(monkeypatch):
         raise AssertionError("expected a response group mismatch to fail closed")
 
 
+def test_shift_roster_api_client_reports_http_status_without_response_body(monkeypatch):
+    import requests
+
+    class FakeResponse:
+        status_code = 401
+
+        def raise_for_status(self):
+            raise requests.HTTPError("unauthorized", response=self)
+
+    monkeypatch.setattr("app.shift_roster_client.requests.post", lambda *args, **kwargs: FakeResponse())
+
+    try:
+        ShiftRosterClient("https://roster.example/employees", "test-key").get_employees(
+            "GDI-SAP_CC-Authorizations",
+            "2026-10-23",
+        )
+    except ShiftRosterAPIError as error:
+        assert str(error) == "Shift roster API returned HTTP 401"
+    else:
+        raise AssertionError("expected an HTTP error to be reported")
+
+
+def test_shift_roster_api_client_reports_missing_key():
+    try:
+        ShiftRosterClient("https://roster.example/employees", "").get_employees(
+            "GDI-SAP_CC-Authorizations",
+            "2026-10-23",
+        )
+    except ShiftRosterAPIError as error:
+        assert str(error) == "SHIFT_ROSTER_API_KEY is not configured"
+    else:
+        raise AssertionError("expected a missing API key to fail")
+
+
 def test_fuzzy_incident_match_is_robust_for_typo_variants():
     service = AssignmentService()
     incidents = [
