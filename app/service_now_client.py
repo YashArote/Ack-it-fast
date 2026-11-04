@@ -47,6 +47,25 @@ class TicketingClient(ABC):
 
 
 class ServiceNowClient(TicketingClient):
+    SEARCH_BOILERPLATE_REGEX = re.compile(
+        r"(the symptom is:|o sintoma é:|describe the issue:|descreva o problema:|"
+        r"procedure to reproduce the issue:|procedimento para reproduzir o problema:|"
+        r"justification:|justificativa:|hello team|dear team|good morning|good afternoon|"
+        r"hello everyone|thanks\s*&?\s*regards|best regards|kind regards|"
+        r"thank you in advance|please check and|could you please|see attached|"
+        r"attached screenshot|\[cid:[^\]]+\]|from:.*|sent:.*|to:.*|cc:.*|subject:.*)",
+        re.IGNORECASE,
+    )
+    SEARCH_STOPWORDS = {
+        "the", "is", "in", "to", "for", "of", "and", "on", "with", "not", "are", "be",
+        "this", "that", "have", "has", "was", "from", "by", "as", "at", "or", "an", "it",
+        "we", "can", "you", "please", "hello", "hi", "dear", "team", "thanks", "thank",
+        "regards", "br", "kr", "issue", "problem", "error", "working", "unable", "need",
+        "help", "check", "support", "user", "system", "sap", "attached", "attachment",
+        "see", "below", "following", "when", "try", "trying", "getting", "de", "la", "le",
+        "en", "para", "por", "com", "não", "no", "na", "und", "nicht", "mit", "die", "der",
+    }
+
     def __init__(self, instance: str = SN_INSTANCE, username: str = SN_USER, password: str = SN_PASSWORD):
         self.instance = instance.rstrip("/")
         self.username = username
@@ -55,8 +74,13 @@ class ServiceNowClient(TicketingClient):
     def normalize_search_terms(self, value: Optional[str]) -> list[str]:
         if not value:
             return []
-        cleaned = re.sub(r"[^a-z0-9]+", " ", str(value).lower()).strip()
-        terms = [term for term in cleaned.split() if len(term) >= 3]
+        cleaned = self.SEARCH_BOILERPLATE_REGEX.sub(" ", str(value).lower())
+        cleaned = re.sub(r"\b\d{6,}\b", " _docnum_ ", cleaned)
+        cleaned = re.sub(r"[^a-z0-9_-]+", " ", cleaned).strip()
+        terms = [
+            term for term in cleaned.split()
+            if len(term) > 1 and term not in self.SEARCH_STOPWORDS and term != "_docnum_"
+        ]
         deduped = []
         for term in terms:
             if term not in deduped:

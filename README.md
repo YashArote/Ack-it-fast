@@ -49,6 +49,28 @@ python check_shift_roster_api.py
 
 The script defaults to assignment group `GDI-SAP_CC-Authorizations` and business service `BS_GDI_SAP_E2000`. It uses the current date and time in `WORKSPACE_TIMEZONE`, reads the API key from the process environment or local `.env`, and does not print the key or employee SGIDs. To verify the deployed environment, run the script in that environment; running it locally only verifies local configuration.
 
+### Temporary local hosting with ngrok
+
+Use this only when the local machine can reach the Symphony API but the hosted service cannot. The request flow is ServiceNow → ngrok → local Ack-it-fast → Symphony API. The local process must stay running, connected to the required network, and configured with its API and ServiceNow credentials.
+
+1. Configure local `.env` with `SHIFT_ROSTER_API_KEY`, `SN_USER`, `SN_PASSWORD`, and a strong random `APP_API_KEY`. Keep `.env` private and do not commit or share it.
+2. Start the local app in one terminal:
+
+   ```text
+   python -m uvicorn main:app --host 0.0.0.0 --port 10000 --env-file .env
+   ```
+
+3. In a second terminal, start an authenticated ngrok tunnel to that port:
+
+   ```text
+   ngrok http 10000
+   ```
+
+4. Copy the HTTPS forwarding URL printed by ngrok. In ServiceNow, set the incident business rule URL to `<ngrok-https-url>/assign` and the requested-item rule URL to `<ngrok-https-url>/assign-ritm`. Update the `X-API-Key` header in each rule to match local `APP_API_KEY`.
+5. Keep both processes running. After ngrok restarts, its free URL may change; update both business rules before testing. Test with a non-production ticket first.
+
+The ngrok URL exposes the local assignment service to the internet. Use ngrok's access controls where compatible with ServiceNow outbound requests, protect the shared API key, and stop the tunnel when it is not needed. `verify=False` disables certificate validation for the Symphony API request; it is an insecure workaround and should only be temporary on a trusted network. Do not use it as the production TLS configuration.
+
 Workload is not considered for P1 incidents. If several people meet all conditions, assignments rotate between those eligible people.
 
 ### Non-P1 incidents
@@ -118,11 +140,6 @@ The first request may take longer if the service has been inactive.
 ### 2. Open an incident
 
 Sign in to ServiceNow using your normal approved account.
-```test
-Url:- dev405393.service-now.com
-username:- admin
-password:- 6^%oNrNFxW1k
-```
 
 Open the in-progress incident list:
 

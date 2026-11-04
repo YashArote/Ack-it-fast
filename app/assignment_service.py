@@ -17,6 +17,7 @@ logger = logging.getLogger("ackitfast.assignment")
 
 
 class AssignmentService:
+    ENFORCE_SHIFT_ROSTER_ELIGIBILITY = False
     BOILERPLATE_REGEX = re.compile(
         r"(the symptom is:|o sintoma é:|describe the issue:|descreva o problema:|"
         r"procedure to reproduce the issue:|procedimento para reproduzir o problema:|"
@@ -332,9 +333,6 @@ class AssignmentService:
             sgid = str(employee.get("sgid") or "").strip()
             if not re.fullmatch(r"[A-Za-z0-9]+", sgid):
                 continue
-            if str(employee.get("availabilityStatus") or "").strip().upper() != "PRESENT":
-                continue
-
             services = employee.get("businessServices")
             if not isinstance(services, list) or not any(
                 isinstance(service, str) and service.strip().casefold() == normalized_business_service
@@ -344,7 +342,9 @@ class AssignmentService:
 
             shift = str(employee.get("shift") or "").strip().upper()
             shift_window = shift_windows.get(shift)
-            if shift_window is None or not self.is_within_shift(current_time, *shift_window):
+            is_present = str(employee.get("availabilityStatus") or "").strip().upper() == "PRESENT"
+            is_within_shift = shift_window is not None and self.is_within_shift(current_time, *shift_window)
+            if self.ENFORCE_SHIFT_ROSTER_ELIGIBILITY and not (is_present and is_within_shift):
                 continue
 
             candidates.append(
@@ -355,7 +355,7 @@ class AssignmentService:
                     "businessServices": services,
                     "shift": shift,
                     "shiftLabel": employee.get("shiftLabel"),
-                    "availabilityStatus": "PRESENT",
+                    "availabilityStatus": employee.get("availabilityStatus"),
                 }
             )
 

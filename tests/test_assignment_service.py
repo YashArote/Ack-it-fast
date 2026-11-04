@@ -65,7 +65,7 @@ def test_roster_candidate_is_rejected_after_shift_ends():
     assert matches == []
 
 
-def test_shift_roster_api_candidates_require_service_availability_and_active_shift():
+def test_shift_roster_api_candidates_ignore_availability_and_shift_for_testing():
     service = AssignmentService(timezone_name="Asia/Kolkata")
     employees = [
         {
@@ -92,6 +92,24 @@ def test_shift_roster_api_candidates_require_service_availability_and_active_shi
             "shift": "A",
             "availabilityStatus": "PRESENT",
         },
+        {
+            "sgid": "T8761111",
+            "businessServices": ["BS_GDI_SAP_E2000"],
+            "shift": "M",
+            "availabilityStatus": "UNAVAILABLE",
+        },
+        {
+            "sgid": "T8762222",
+            "businessServices": ["BS_GDI_SAP_E2000"],
+            "shift": "A",
+            "availabilityStatus": "ABSENT",
+        },
+        {
+            "sgid": "T8763333",
+            "businessServices": ["BS_GDI_SAP_E2000"],
+            "shift": None,
+            "availabilityStatus": None,
+        },
     ]
 
     matches = service.find_shift_roster_candidates(
@@ -100,10 +118,18 @@ def test_shift_roster_api_candidates_require_service_availability_and_active_shi
         datetime(2026, 10, 23, 9, 30, tzinfo=ZoneInfo("Asia/Kolkata")),
     )
 
-    assert [candidate["SG_ID"] for candidate in matches] == ["T8753430"]
+    assert [candidate["SG_ID"] for candidate in matches] == [
+        "T8753430",
+        "T8769998",
+        "T8761111",
+        "T8762222",
+        "T8763333",
+    ]
+    assert matches[2]["availabilityStatus"] == "UNAVAILABLE"
 
 
-def test_shift_roster_api_candidate_is_available_through_shift_end():
+def test_shift_roster_api_eligibility_can_be_reenabled(monkeypatch):
+    monkeypatch.setattr(AssignmentService, "ENFORCE_SHIFT_ROSTER_ELIGIBILITY", True)
     service = AssignmentService(timezone_name="Asia/Kolkata")
     employee = {
         "sgid": "T8753430",
@@ -121,7 +147,8 @@ def test_shift_roster_api_candidate_is_available_through_shift_end():
     assert [candidate["SG_ID"] for candidate in matches] == ["T8753430"]
 
 
-def test_shift_roster_api_a_shift_uses_inclusive_indian_time_window():
+def test_shift_roster_api_a_shift_uses_inclusive_indian_time_window(monkeypatch):
+    monkeypatch.setattr(AssignmentService, "ENFORCE_SHIFT_ROSTER_ELIGIBILITY", True)
     service = AssignmentService(timezone_name="Asia/Kolkata")
     employee = {
         "sgid": "T8753430",
@@ -174,6 +201,7 @@ def test_shift_roster_api_client_sends_expected_post(monkeypatch):
         "assignmentGroup": "GDI-SAP_CC-Authorizations",
         "date": "2026-10-23",
     }
+    assert captured["verify"] is False
     assert employees == [{"sgid": "T8753430"}]
 
 
@@ -319,6 +347,17 @@ def test_servicenow_similarity_query_uses_contains_filters():
     assert "descriptionCONTAINSdatabase" in query
     assert "descriptionCONTAINSserver" in query
     assert "descriptionCONTAINSproduction" in query
+
+
+def test_servicenow_search_terms_keep_technical_tokens_and_drop_noise():
+    client = ServiceNowClient()
+
+    terms = client.normalize_search_terms(
+        "The symptom is: /N/SCWM/CHM_PRF fails on SM58 for PO 4500123456. "
+        "Please check and see attached."
+    )
+
+    assert terms == ["scwm", "chm_prf", "fails", "sm58", "po"]
 
 
 def test_bulk_workload_query_uses_assigned_to_in_operator():

@@ -70,6 +70,7 @@
             sys_id: current.sys_id.toString(),
             number: current.number.toString(),
             short_description: current.short_description.toString(),
+            description: current.description.toString(),
             business_service: current.business_service.getDisplayValue(),
             business_service_sys_id: current.business_service.toString(),
             service_offering: current.service_offering.getDisplayValue(),

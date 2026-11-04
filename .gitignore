@@ -25,6 +25,16 @@ htmlcov/
 # Local env files
 .env
 .env.*
+!.env.example
+/app/config.py
+
+# Local credentials and certificates
+credentials/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
 
 # OS files
 .DS_Store

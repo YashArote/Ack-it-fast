@@ -26,6 +26,7 @@ class ShiftRosterClient:
                 headers={"x-api-key": self.api_key, "Accept": "application/json"},
                 json={"assignmentGroup": assignment_group, "date": date},
                 timeout=10,
+                verify=False,
             )
             response.raise_for_status()
             payload = response.json()

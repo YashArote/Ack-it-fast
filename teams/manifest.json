@@ -1,0 +1,37 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.11/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.11",
+  "version": "1.0.0",
+  "id": "08d27d8b-aef7-4c69-8187-ca02895bf968",
+  "packageName": "com.ackitfast.callingbot",
+  "developer": {
+    "name": "Ack-it-fast",
+    "websiteUrl": "https://github.com/YashArote/Ack-it-fast",
+    "privacyUrl": "https://github.com/YashArote/Ack-it-fast/blob/main/teams/privacy-policy.md",
+    "termsOfUseUrl": "https://github.com/YashArote/Ack-it-fast/blob/main/teams/terms-of-use.md"
+  },
+  "name": {
+    "short": "Ack-it-fast",
+    "full": "Ack-it-fast Incident Assistant"
+  },
+  "description": {
+    "short": "Routes ServiceNow incidents using shift eligibility and agent workload.",
+    "full": "Ack-it-fast helps route ServiceNow incidents to eligible support staff. P1 assignments use shift-roster eligibility; P2-P5 assignments use ServiceNow group membership and current workload. Related-incident context can be added to Work notes."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#4338CA",
+  "bots": [
+    {
+      "botId": "08d27d8b-aef7-4c69-8187-ca02895bf968",
+      "scopes": [
+        "personal"
+      ],
+      "supportsCalling": true,
+      "supportsVideo": false
+    }
+  ],
+  "validDomains": []
+}
