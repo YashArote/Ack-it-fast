@@ -168,7 +168,7 @@ def assign(payload: IncidentPayload, background_tasks: BackgroundTasks, x_api_ke
             candidate["high_priority_incidents"] = load.get("high_priority_incidents", 0)
             logger.info("candidate workload loaded", extra={"employee_name": candidate.get("name") or candidate.get("Employee_Name"), "current_incidents": load.get("current_incidents", 0), "high_priority_incidents": load.get("high_priority_incidents", 0)})
 
-    agent = assignment_service.pick_agent(candidates, assignment_group or "default", payload.priority)
+    agent = assignment_service.pick_agent(candidates, assignment_group or "default")
     if agent is None:
         logger.warning("assignment ranking returned no agent", extra={"incident_number": payload.number})
         return AssignmentDecision(
@@ -285,7 +285,7 @@ def assign_ritm(payload: RitmPayload, background_tasks: BackgroundTasks, x_api_k
             candidate["high_priority_incidents"] = load.get("high_priority_incidents", 0)
             logger.info("candidate workload loaded", extra={"employee_name": candidate.get("name") or candidate.get("Employee_Name"), "current_incidents": load.get("current_incidents", 0), "high_priority_incidents": load.get("high_priority_incidents", 0)})
 
-    agent = assignment_service.pick_agent(candidates, assignment_group or "default", payload.priority)
+    agent = assignment_service.pick_agent(candidates, assignment_group or "default")
     if agent is None:
         logger.warning("assignment ranking returned no agent", extra={"ritm_number": payload.number})
         return RitmAssignmentDecision(

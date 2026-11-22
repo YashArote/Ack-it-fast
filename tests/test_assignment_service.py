@@ -318,12 +318,36 @@ def test_incident_match_ignores_boilerplate_and_empty_descriptions():
     service = AssignmentService()
     tokens, entities, _ = service.clean_and_extract(
         "SM58 queue stuck",
-        "The symptom is: IDoc processing fails. From: sender@example.com",
+        "The symptom is: IDoc processing fails.\nFrom: sender@example.com",
     )
 
     assert tokens == ["sm58", "queue", "stuck", "sm58", "queue", "stuck", "idoc", "processing", "fails"]
     assert entities == {"sm58"}
     assert service.find_matching_incidents("", [{"short_description": "SM58 queue stuck"}]) == []
+
+
+def test_clean_and_extract_recognizes_slash_prefixed_technical_entities():
+    service = AssignmentService()
+
+    _, entities, _ = service.clean_and_extract(
+        "",
+        "Transaction /N/SCWM/CHM_PRF fails during processing.",
+    )
+
+    assert "/n/scwm/chm_prf" in entities
+
+
+def test_boilerplate_removal_preserves_sold_to_and_ship_to_values():
+    service = AssignmentService()
+    description = "Sold to: 1327, ship to: 6638.\nTo: support@example.com"
+
+    tokens, _, _ = service.clean_and_extract("", description)
+    search_terms = ServiceNowClient().normalize_search_terms(description)
+
+    assert {"sold", "1327", "ship", "6638"}.issubset(tokens)
+    assert {"sold", "1327", "ship", "6638"}.issubset(search_terms)
+    assert "support" not in tokens
+    assert "support" not in search_terms
 
 
 def test_servicenow_similarity_query_uses_contains_filters():
@@ -392,7 +416,7 @@ def test_similar_incidents_are_formatted_for_work_notes():
     assert "similarity=0.82" in notes
 
 
-def test_rank_candidates_prefers_lower_active_load_and_priority_penalty():
+def test_rank_candidates_prefers_lower_active_load():
     service = AssignmentService()
     candidates = [
         DummyRosterRow(
@@ -417,7 +441,7 @@ def test_rank_candidates_prefers_lower_active_load_and_priority_penalty():
         ),
     ]
 
-    ranked = service.rank_candidates(candidates, incident_priority=1)
+    ranked = service.rank_candidates(candidates)
 
     assert ranked[0]["Employee_Name"] == "Bob"
 

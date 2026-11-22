@@ -53,8 +53,8 @@ class ServiceNowClient(TicketingClient):
         r"justification:|justificativa:|hello team|dear team|good morning|good afternoon|"
         r"hello everyone|thanks\s*&?\s*regards|best regards|kind regards|"
         r"thank you in advance|please check and|could you please|see attached|"
-        r"attached screenshot|\[cid:[^\]]+\]|from:.*|sent:.*|to:.*|cc:.*|subject:.*)",
-        re.IGNORECASE,
+        r"attached screenshot|\[cid:[^\]]+\]|^(?:from|sent|to|cc|subject):.*)",
+        re.IGNORECASE | re.MULTILINE,
     )
     SEARCH_STOPWORDS = {
         "the", "is", "in", "to", "for", "of", "and", "on", "with", "not", "are", "be",

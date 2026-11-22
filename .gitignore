@@ -56,3 +56,7 @@ check_shift_roster_api.py
 
 # Logs
 *.log
+similarity_review.csv
+similarity_audit.csv
+validate_similarity.py
+incidents_filtered.xml

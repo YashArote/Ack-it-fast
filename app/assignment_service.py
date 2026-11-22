@@ -25,19 +25,18 @@ class AssignmentService:
         r"hello team|dear team|good morning|good afternoon|hello everyone|"
         r"thanks\s*&?\s*regards|best regards|kind regards|thank you in advance|"
         r"please check and|could you please|see attached|attached screenshot|"
-        r"\[cid:[^\]]+\]|from:.*|sent:.*|to:.*|cc:.*|subject:.*)",
-        re.IGNORECASE,
+        r"\[cid:[^\]]+\]|^(?:from|sent|to|cc|subject):.*)",
+        re.IGNORECASE | re.MULTILINE,
     )
     TECH_ENTITY_REGEX = re.compile(
-        r"\b(?:"
-        r"/n/[a-z0-9_/]+|"
+        r"(?:(?<!\w)/n/[a-z0-9_/]+|\b(?:"
         r"[p]_\d{2}_[a-z0-9_-]+|"
         r"z[a-z0-9_]{3,}|"
         r"(?:va|vl|vf|me|mm|mb|md|mi|sm|se|su|st|fb|fk|fd|fs|f-|ko|ks|kp|ke|lt|vi|vd|vk|vv|we)\d{2}[a-zn]?|"
         r"e1[a-z0-9]{4,}|"
         r"(?:incsd|ritmsd|enhc|dmnd|qsm-)\d+|"
         r"(?:p01|p16|tg4|ro1|ro2|q11|r10|a11|pi1|pv1|de6|te6|ts6|pwy|ewm|ibp|mdg|s4h|medius|ksef|factivity|pagero|notilus|zentrada|tagxter|orion)"
-        r")\b",
+        r")\b)",
         re.IGNORECASE,
     )
     STOPWORDS: Set[str] = {
@@ -369,26 +368,24 @@ class AssignmentService:
         )
         return candidates
 
-    def candidate_load_score(self, row: dict, incident_priority: Optional[int] = None) -> tuple:
+    def candidate_load_score(self, row: dict) -> tuple:
         active_count = int(row.get("current_incidents", 0) or 0)
         high_priority = int(row.get("high_priority_incidents", 0) or 0)
-        priority_penalty = 0 if incident_priority in (None, 1) else 2
-        return (active_count + high_priority + priority_penalty, high_priority)
+        return (active_count + high_priority, high_priority)
 
-    def rank_candidates(self, candidates: List[dict], incident_priority: Optional[int] = None) -> List[dict]:
+    def rank_candidates(self, candidates: List[dict]) -> List[dict]:
         ranked = []
         for row in candidates:
             row_copy = dict(row)
-            active_load, high_priority = self.candidate_load_score(row_copy, incident_priority)
+            active_load, high_priority = self.candidate_load_score(row_copy)
             row_copy["_active_load"] = active_load
             row_copy["_high_priority_count"] = high_priority
-            row_copy["_priority_penalty"] = 0 if incident_priority in (None, 1) else 2
             ranked.append(row_copy)
         ranked.sort(key=lambda row: (row.get("_active_load", 0), row.get("_high_priority_count", 0), row.get("Employee_Name", "")))
         return ranked
 
-    def pick_agent(self, candidates: list, service_key: str, incident_priority: Optional[int] = None):
-        ranked = self.rank_candidates(candidates, incident_priority)
+    def pick_agent(self, candidates: list, service_key: str):
+        ranked = self.rank_candidates(candidates)
         if not ranked:
             return None
 
