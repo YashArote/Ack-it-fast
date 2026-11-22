@@ -6,6 +6,12 @@ Ack-it-fast helps assign ServiceNow incidents to the right support person. It ch
 
 The service runs in the background. Users continue working in ServiceNow as usual.
 
+After a successful assignment, Ack-it-fast can also place an acknowledgement call for both incidents and RITMs. It ends the call when it is answered, or after the configured ring timeout, and adds a short result and timing summary to that ticket's Work notes. This currently uses the fixed Graph user object ID configured by `CALL_TARGET_USER_OBJECT_ID`; the assigned agent's email is still required.
+
+To enable calling, set `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, and a strong random `CALL_WEBHOOK_TOKEN` in the local `.env` or the deployment's secret environment variables. The Graph application needs the `Calls.Initiate.All` application permission with admin consent. The callback URL is generated as `<public-base-url>/calling/notifications/<CALL_WEBHOOK_TOKEN>`; set `CALL_PUBLIC_BASE_URL` for local hosting. On Render, the service's external URL is used by default. The callback must be reachable over HTTPS. For local testing, expose the app through an HTTPS tunnel and set `CALL_PUBLIC_BASE_URL` to that tunnel URL.
+
+Call state is stored in SQLite at `CALL_STATE_DB_PATH` (default: `call_state.sqlite3`). The database must be on storage shared with the callback handler; use one app instance and persistent storage if call events must survive restarts or deployments.
+
 ## Terms used in this guide
 
 ### Incident

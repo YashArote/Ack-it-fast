@@ -56,6 +56,9 @@ check_shift_roster_api.py
 
 # Logs
 *.log
+call_state.sqlite3
+call_state.sqlite3-shm
+call_state.sqlite3-wal
 similarity_review.csv
 similarity_audit.csv
 validate_similarity.py

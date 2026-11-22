@@ -20,3 +20,13 @@ services:
         sync: false
       - key: ATTACH_NO_AGENT_WORK_NOTE
         value: "true"
+      - key: GRAPH_TENANT_ID
+        sync: false
+      - key: GRAPH_CLIENT_ID
+        sync: false
+      - key: GRAPH_CLIENT_SECRET
+        sync: false
+      - key: CALL_WEBHOOK_TOKEN
+        sync: false
+      - key: CALL_RING_SECONDS
+        value: "7"

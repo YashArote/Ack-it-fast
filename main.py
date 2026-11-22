@@ -1,11 +1,15 @@
 import json
+import hmac
 import logging
 from datetime import datetime
 
 import requests
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Query
+from fastapi.responses import PlainTextResponse
 
 from app.assignment_service import AssignmentService
+from app.call_acknowledgement import CallAcknowledgementService
+from app.call_config import CALL_WEBHOOK_TOKEN
 from app.config import ATTACH_NO_AGENT_WORK_NOTE, ATTACH_NO_SIMILAR_WORK_NOTE, APP_API_KEY, SN_INSTANCE, SN_USER, SN_PASSWORD, WORKSPACE_TIMEZONE
 from app.models import AssignmentDecision, IncidentPayload, RitmPayload, RitmAssignmentDecision
 from app.roster_routes import router as roster_router
@@ -22,6 +26,15 @@ app.include_router(roster_router)
 assignment_service = AssignmentService(timezone_name=WORKSPACE_TIMEZONE)
 shift_roster_client = ShiftRosterClient()
 service_now_client = ServiceNowClient(SN_INSTANCE, SN_USER, SN_PASSWORD)
+call_acknowledgement_service = CallAcknowledgementService(service_now_client)
+
+
+def validate_call_webhook_token(webhook_token: str) -> None:
+    if not CALL_WEBHOOK_TOKEN or not hmac.compare_digest(
+        webhook_token,
+        CALL_WEBHOOK_TOKEN,
+    ):
+        raise HTTPException(status_code=404, detail="not found")
 
 
 def get_p1_candidates(assignment_group: str, business_service: str, now_dt: datetime, ticket_number: str) -> list:
@@ -81,6 +94,46 @@ def get_p1_candidates(assignment_group: str, business_service: str, now_dt: date
 @app.get("/health")
 def health():
     return {"status": "ok", "ws_listeners": ws_manager.active_sg_ids}
+
+
+@app.get("/calling/notifications/{webhook_token}", response_class=PlainTextResponse)
+def validate_call_notification_endpoint(
+    webhook_token: str,
+    validation_token: str = Query("", alias="validationToken"),
+):
+    validate_call_webhook_token(webhook_token)
+    if not validation_token:
+        raise HTTPException(status_code=400, detail="validationToken is required")
+    return validation_token
+
+
+@app.post("/calling/notifications/{webhook_token}")
+def receive_call_notifications(
+    webhook_token: str,
+    background_tasks: BackgroundTasks,
+    payload: dict | None = None,
+    validation_token: str = Query("", alias="validationToken"),
+):
+    validate_call_webhook_token(webhook_token)
+    if validation_token:
+        return PlainTextResponse(validation_token)
+    if payload is None:
+        raise HTTPException(status_code=400, detail="notification payload is required")
+    try:
+        notes, calls_to_end = call_acknowledgement_service.handle_notifications(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if notes:
+        background_tasks.add_task(
+            call_acknowledgement_service.write_notification_notes,
+            notes,
+        )
+    for call_id in calls_to_end:
+        background_tasks.add_task(
+            call_acknowledgement_service.end_acknowledged_call,
+            call_id,
+        )
+    return {"status": "accepted"}
 
 
 @app.websocket("/ws/{sg_id}")
@@ -188,6 +241,13 @@ def assign(payload: IncidentPayload, background_tasks: BackgroundTasks, x_api_ke
                 incident=payload.number,
             )
         service_now_client.assign_incident(payload.sys_id, agent_sys_id)
+        background_tasks.add_task(
+            call_acknowledgement_service.start_call,
+            email or "",
+            payload.sys_id,
+            payload.number,
+            "incident",
+        )
 
     # ── WebSocket push (P1 roster assignments only) ──────────────────────
     if is_p1:
@@ -305,6 +365,13 @@ def assign_ritm(payload: RitmPayload, background_tasks: BackgroundTasks, x_api_k
                 incident=payload.number,
             )
         service_now_client.assign_ritm(payload.sys_id, agent_sys_id)
+        background_tasks.add_task(
+            call_acknowledgement_service.start_call,
+            email or "",
+            payload.sys_id,
+            payload.number,
+            "ritm",
+        )
 
     # ── WebSocket push (P1 roster assignments only) ──────────────────────
     if is_p1:
